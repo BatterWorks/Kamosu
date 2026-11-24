@@ -80,22 +80,13 @@
 	{/if}
 	<PasteCheck {pasted} bind:boundary />
 	<p class="mt-4 text-read text-ink-2">{m.write_paste_fresh()}</p>
-	<button
-		type="button"
-		class="mt-3 block w-full bg-accent p-4 text-center font-display text-body text-on-accent disabled:opacity-60"
-		disabled={!makeable}
-		onclick={make}
-	>
+	<button type="button" class="mt-3 main-button w-full" disabled={!makeable} onclick={make}>
 		{m.plus_paste_make()}
 	</button>
 	{#if adding.failed}
 		<p class="mt-2 text-read text-support" role="alert"><Refusal words={adding.failed} /></p>
 	{/if}
-	<button
-		type="button"
-		class="mt-2 block w-full border border-rule p-4 text-center font-display text-body text-ink-2"
-		onclick={onback}
-	>
+	<button type="button" class="mt-2 second-button w-full" onclick={onback}>
 		{m.write_back()}
 	</button>
 </SheetFrame>

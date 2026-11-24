@@ -265,16 +265,13 @@
 			<p class="mt-3 text-read text-ink-2">{m.import_shared_newer_adds()}</p>
 		{/if}
 		{#if held && is !== 'newer'}
-			<a
-				href={`/recipes/${held.branch_id}`}
-				class="mt-6 block min-h-12 rounded-sm bg-accent p-3 text-center font-semibold text-on-accent"
-			>
+			<a href={`/recipes/${held.branch_id}`} class="mt-6 main-button w-full">
 				{m.import_shared_open()}
 			</a>
 		{:else}
 			<button
 				type="button"
-				class="mt-6 block min-h-12 w-full rounded-sm bg-accent p-3 text-center font-semibold text-on-accent disabled:opacity-60"
+				class="mt-6 main-button w-full"
 				disabled={busy}
 				onclick={() => importIt(preview)}
 			>
@@ -285,12 +282,7 @@
 						: m.import_shared_import_newer({ count: held.newer })}
 			</button>
 		{/if}
-		<button
-			type="button"
-			class="mt-2 block min-h-12 w-full rounded-sm border border-rule p-3 text-center text-accent disabled:opacity-60"
-			disabled={busy}
-			onclick={notNow}
-		>
+		<button type="button" class="mt-2 second-button w-full" disabled={busy} onclick={notNow}>
 			{m.import_shared_not_now()}
 		</button>
 	</Screen>
@@ -331,7 +323,7 @@
 			{#if addressProblem}
 				<p class="text-body text-accent" role="alert">{addressProblem}</p>
 			{/if}
-			<button class="min-h-12 rounded-sm border border-accent px-4 font-semibold text-accent">
+			<button class="second-button">
 				{m.import_shared_there()}
 			</button>
 		</form>
@@ -375,11 +367,7 @@
 	<Screen title={m.import_shared_failed()}>
 		<p class="text-body" role="alert"><Refusal words={step.reason} /></p>
 		{#if shared}
-			<button
-				type="button"
-				class="mt-6 min-h-12 w-full rounded-sm border border-rule px-4 text-accent"
-				onclick={() => (asked += 1)}
-			>
+			<button type="button" class="mt-6 second-button w-full" onclick={() => (asked += 1)}>
 				{m.import_shared_try_again()}
 			</button>
 		{/if}

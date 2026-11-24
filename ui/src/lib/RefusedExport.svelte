@@ -13,6 +13,7 @@
 -->
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
+	import ListRow from '#lib/ListRow.svelte';
 	import { useKamosu } from '#lib/kamosu.js';
 	import { OperationError } from '#lib/api/client.js';
 	import { ICON } from '#lib/adding/sources.js';
@@ -103,13 +104,9 @@
 </div>
 {#if refused.reason === 'unrecognised'}
 	<p class="mt-4 text-read">{m.import_other_one_recipe()}</p>
-	{#each ways as way (way.label)}
-		<a
-			href={way.href}
-			class="mt-3 flex min-h-12 items-center justify-between gap-3 rounded-sm border border-rule bg-card px-3 text-body font-medium text-ink"
-		>
-			{way.label}
-			<span aria-hidden="true" class="text-ink-2">›</span>
-		</a>
-	{/each}
+	<div class="mt-3 list-rows">
+		{#each ways as way (way.label)}
+			<ListRow href={way.href} title={way.label} />
+		{/each}
+	</div>
 {/if}

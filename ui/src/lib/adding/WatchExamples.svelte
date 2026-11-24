@@ -15,11 +15,7 @@
 </script>
 
 {#if adding.refusedInDemo}
-	<button
-		type="button"
-		class="mt-2 flex min-h-12 w-full items-center justify-center rounded-sm border border-accent px-4 text-body text-accent"
-		onclick={() => adding.watchExamples()}
-	>
+	<button type="button" class="mt-2 second-button w-full" onclick={() => adding.watchExamples()}>
 		{m.plus_replays()}
 	</button>
 {/if}

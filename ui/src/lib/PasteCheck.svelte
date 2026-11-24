@@ -35,7 +35,7 @@
 	const countOf = (rows: { kind: string }[]) => rows.filter((row) => row.kind === 'line').length;
 	const sections = $derived(pasted.lines.filter((row) => row.kind === 'section').length);
 
-	const QUIET = 'rounded-sm border border-rule px-2 py-1 text-read text-ink-2';
+	const QUIET = 'quiet-button text-ink-2';
 </script>
 
 <p class="mt-1 text-read text-ink-2">
@@ -45,7 +45,7 @@
 	{/if}
 </p>
 
-<div class="mt-3 flex items-center gap-2">
+<div class="mt-3 flex items-center gap-3">
 	<span class="flex-1 text-label text-ink-2 uppercase">{m.write_paste_boundary()}</span>
 	<button
 		type="button"

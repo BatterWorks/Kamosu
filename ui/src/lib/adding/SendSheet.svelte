@@ -185,7 +185,7 @@
 					>
 					<button
 						type="button"
-						class="absolute top-1 right-1 grid h-8 w-8 place-items-center round-mark bg-ink/70 text-ground disabled:opacity-40"
+						class="tap-out absolute top-1 right-1 grid h-8 w-8 place-items-center round-mark bg-ink/70 text-ground disabled:opacity-40"
 						aria-label={m.send_take_out({ number: at + 1 })}
 						disabled={sending}
 						onclick={() => adding.takeOut(at)}
@@ -229,20 +229,16 @@
 		waiting={waitsForServer(chosen.kind, true)}
 		disabled={sending}
 		onclick={send}
-		shapeClass="mt-4 block w-full p-4 text-center font-display text-body disabled:opacity-60"
-		lookClass="bg-accent text-on-accent"
+		shapeClass="mt-4 w-full"
+		lookClass="main-button"
+		idleClass="second-button text-ink-2 opacity-55"
 	/>
 	<!-- A Demo's refusal says itself under Send, with the way on to the examples (#406). -->
 	{#if adding.refusedInDemo}
 		<p class="mt-2 text-read text-support" role="alert"><Refusal words={adding.failed} /></p>
 		<WatchExamples {adding} />
 	{/if}
-	<button
-		type="button"
-		class="mt-2 block w-full border border-rule p-4 text-center font-display text-body text-ink-2 disabled:opacity-40"
-		disabled={sending}
-		onclick={back}
-	>
+	<button type="button" class="mt-2 second-button w-full" disabled={sending} onclick={back}>
 		{m.send_back()}
 	</button>
 </SheetFrame>

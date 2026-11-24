@@ -155,20 +155,10 @@
 				<p class="mt-3 text-body text-support" role="alert"><Refusal words={failed} /></p>
 			{/if}
 			<div class="mt-6 flex flex-col gap-2">
-				<button
-					type="button"
-					onclick={join}
-					disabled={busy}
-					class="min-h-12 rounded-sm bg-accent px-4 text-body font-semibold text-on-accent
-					disabled:opacity-60"
-				>
+				<button type="button" onclick={join} disabled={busy} class="main-button">
 					{m.kitchen_invite_join()}
 				</button>
-				<a
-					href="/"
-					class="flex min-h-12 items-center justify-center rounded-sm border border-rule px-4 text-body
-					font-medium text-ink-2"
-				>
+				<a href="/" class="second-button">
 					{m.kitchen_invite_not_now()}
 				</a>
 			</div>

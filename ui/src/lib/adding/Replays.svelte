@@ -89,11 +89,7 @@
 			</li>
 		{/each}
 	</ul>
-	<button
-		type="button"
-		class="mt-4 block w-full border border-rule p-4 text-center font-display text-body text-ink-2"
-		onclick={close}
-	>
+	<button type="button" class="mt-4 second-button w-full" onclick={close}>
 		{m.send_back()}
 	</button>
 </SheetFrame>

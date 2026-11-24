@@ -382,9 +382,7 @@
 														type="button"
 														aria-pressed={draftRating === verdict}
 														onclick={() => (draftRating = verdict)}
-														class="min-h-8 rounded-sm border px-3 text-read {draftRating === verdict
-															? 'border-accent bg-accent text-on-accent'
-															: 'border-rule text-ink-2'}"
+														class="second-button"
 													>
 														{verdict === null ? m.cooked_rating_none() : ratingLabel(verdict)}
 													</button>
@@ -505,7 +503,7 @@
 											type="button"
 											onclick={() => save(entry)}
 											disabled={saving || deleting}
-											class="min-h-12 rounded-sm bg-accent px-4 py-3 font-display text-body text-on-accent disabled:opacity-60"
+											class="main-button"
 										>
 											{saving ? m.cooked_saving() : m.cooked_save()}
 										</button>
@@ -518,14 +516,14 @@
 													type="button"
 													onclick={() => remove(entry)}
 													disabled={deleting}
-													class="min-h-12 flex-1 rounded-sm border border-support px-4 py-3 text-body text-support disabled:opacity-60"
+													class="second-button flex-1 loses"
 												>
 													{m.cooked_delete_yes()}
 												</button>
 												<button
 													type="button"
 													onclick={() => (confirming = false)}
-													class="min-h-12 flex-1 rounded-sm border border-rule px-4 py-3 text-body text-ink-2"
+													class="second-button flex-1"
 												>
 													{m.cooked_delete_no()}
 												</button>
@@ -534,7 +532,7 @@
 											<button
 												type="button"
 												onclick={() => (confirming = true)}
-												class="min-h-12 rounded-sm border border-rule px-4 py-3 text-body text-support"
+												class="second-button loses"
 											>
 												{m.cooked_delete()}
 											</button>

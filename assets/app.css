@@ -1264,9 +1264,6 @@
   .min-h-0 {
     min-height: var(--spacing-0);
   }
-  .min-h-8 {
-    min-height: var(--spacing-8);
-  }
   .min-h-12 {
     min-height: var(--spacing-12);
   }
@@ -2222,9 +2219,6 @@
   }
   .text-accent {
     color: var(--color-accent);
-  }
-  .text-card {
-    color: var(--color-card);
   }
   .text-cook-accent {
     color: var(--color-cook-accent);

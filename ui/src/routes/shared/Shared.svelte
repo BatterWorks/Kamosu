@@ -76,10 +76,7 @@
 	<h1 class="mt-4 font-display text-title font-semibold">{heading}</h1>
 	<p class="mt-2 text-body" role="status">{said}</p>
 	<div class="mt-auto pt-8">
-		<a
-			href={recipe ? `/recipes/${recipe}` : '/'}
-			class="flex min-h-12 items-center justify-center rounded-sm bg-accent px-4 font-semibold text-on-accent"
-		>
+		<a href={recipe ? `/recipes/${recipe}` : '/'} class="main-button w-full">
 			{recipe
 				? answer?.title
 					? m.shared_open_titled({ title: answer.title })

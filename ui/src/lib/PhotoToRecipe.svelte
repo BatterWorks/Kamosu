@@ -200,7 +200,7 @@
 					type="button"
 					aria-pressed={target === 'main'}
 					onclick={() => (target = 'main')}
-					class="flex min-h-12 w-full items-start gap-3 border-y border-rule py-2 text-left"
+					class="list-row items-start border-t border-rule"
 				>
 					{@render box(target === 'main')}
 					<span class="min-w-0 flex-1">
@@ -216,8 +216,10 @@
 					it and the button would bury the sentence saying what the
 					button does.
 				-->
-				<details class="border-b border-rule" open={typeof target === 'number'}>
-					<summary class="flex min-h-12 cursor-pointer items-center py-2 text-line">
+				<details open={typeof target === 'number'}>
+					<summary
+						class="flex min-h-12 cursor-pointer items-center border-b border-rule py-2 text-line"
+					>
 						{m.promote_step()}
 					</summary>
 					<ul>
@@ -230,7 +232,7 @@
 										type="button"
 										aria-pressed={target === index}
 										onclick={() => (target = index)}
-										class="flex w-full items-start gap-3 border-t border-rule py-2 text-left"
+										class="list-row items-start"
 									>
 										{@render box(target === index)}
 										<span class="w-6 shrink-0 font-display text-line text-accent">{number}</span>
@@ -271,13 +273,8 @@
 		</p>
 	{/if}
 
-	<div class="flex border-t border-rule">
-		<button
-			type="button"
-			class="flex-1 p-4 text-center font-display text-body text-ink-2 disabled:opacity-40"
-			disabled={working}
-			onclick={onClose}
-		>
+	<div class="flex gap-2 border-t border-rule px-gutter py-3">
+		<button type="button" class="second-button flex-1" disabled={working} onclick={onClose}>
 			{m.promote_cancel()}
 		</button>
 		<NeedsServer
@@ -285,8 +282,9 @@
 			waiting={m.offline_waits_save()}
 			onclick={promote}
 			disabled={!chosen || target === undefined || working || !content}
-			shapeClass="flex-1 p-4 text-center font-display text-body disabled:opacity-40"
-			lookClass={forking ? 'bg-support text-on-accent' : 'bg-accent text-on-accent'}
+			shapeClass="flex-1"
+			lookClass={forking ? 'second-button loses' : 'main-button'}
+			idleClass="second-button text-ink-2 opacity-55"
 		/>
 	</div>
 </SheetFrame>

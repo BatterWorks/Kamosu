@@ -300,11 +300,7 @@
 
 {#if stalled}
 	<Screen title={m.instance_unreachable()}>
-		<button
-			type="button"
-			class="min-h-12 w-full rounded-sm bg-accent px-4 font-semibold text-on-accent"
-			onclick={() => learnInstanceState()}
-		>
+		<button type="button" class="main-button w-full" onclick={() => learnInstanceState()}>
 			{m.account_try_again()}
 		</button>
 	</Screen>
@@ -314,11 +310,7 @@
 	<Screen title={m.account_loading()}>
 		{#if arrivalRefused}
 			<p class="text-body text-accent" role="alert"><Refusal words={arrivalRefused} /></p>
-			<button
-				type="button"
-				class="min-h-12 w-full rounded-sm bg-accent px-4 font-semibold text-on-accent"
-				onclick={() => arrive(++latestAsk)}
-			>
+			<button type="button" class="main-button w-full" onclick={() => arrive(++latestAsk)}>
 				{m.account_try_again()}
 			</button>
 		{/if}
@@ -380,10 +372,7 @@
 			{:else if failed}
 				<p class="text-body text-accent" role="alert"><Refusal words={failed} /></p>
 			{/if}
-			<button
-				class="min-h-12 rounded-sm bg-accent px-4 font-semibold text-on-accent disabled:opacity-60"
-				disabled={busy}
-			>
+			<button class="main-button" disabled={busy}>
 				{words.submit}
 			</button>
 		</form>
@@ -396,7 +385,7 @@
 			</div>
 			<button
 				type="button"
-				class="min-h-12 w-full rounded-sm border border-accent px-4 text-body font-medium text-accent disabled:opacity-60"
+				class="second-button w-full"
 				disabled={busy}
 				onclick={signInWithPasskey}
 			>
