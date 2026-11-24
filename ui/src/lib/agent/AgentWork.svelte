@@ -239,15 +239,12 @@
 				<div class="mt-3 border-t border-rule pt-3">
 					<p class="text-read">{m.agent_stop_ask()}</p>
 					<div class="mt-2 grid grid-cols-2 gap-2">
-						<button
-							type="button"
-							class="min-h-12 rounded-sm bg-support text-body font-semibold text-on-accent"
-							disabled={stopping}
-							onclick={stop}>{m.agent_stop_yes()}</button
+						<button type="button" class="second-button loses" disabled={stopping} onclick={stop}
+							>{m.agent_stop_yes()}</button
 						>
 						<button
 							type="button"
-							class="min-h-12 rounded-sm border border-rule text-body text-accent"
+							class="second-button"
 							disabled={stopping}
 							onclick={() => (asking = false)}>{m.agent_stop_no()}</button
 						>
@@ -256,7 +253,7 @@
 			{:else}
 				<button
 					type="button"
-					class="mt-3 min-h-12 w-full rounded-sm border border-rule text-body text-accent"
+					class="mt-3 second-button w-full loses"
 					onclick={() => (asking = true)}>{m.agent_stop()}</button
 				>
 			{/if}

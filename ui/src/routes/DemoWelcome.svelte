@@ -35,7 +35,7 @@
 		>
 		<button
 			type="button"
-			class="min-h-12 shrink-0 rounded-sm border border-rule bg-card px-3 text-read text-accent"
+			class="quiet-button shrink-0 text-accent"
 			onclick={() => copy(what, text)}
 		>
 			{copied === what ? m.demo_copied() : m.demo_copy()}
@@ -69,19 +69,10 @@
 	{/if}
 
 	<div class="mt-6 grid gap-2 pb-6">
-		<button
-			type="button"
-			class="block w-full bg-accent p-4 text-center font-display text-body text-on-accent"
-			onclick={closeWelcome}
-		>
+		<button type="button" class="main-button w-full" onclick={closeWelcome}>
 			{m.demo_welcome_close()}
 		</button>
-		<a
-			href={INSTALL_KAMOSU}
-			target="_blank"
-			rel="noopener"
-			class="block w-full border border-rule bg-card p-4 text-center font-display text-body text-accent"
-		>
+		<a href={INSTALL_KAMOSU} target="_blank" rel="noopener" class="second-button w-full">
 			{m.demo_welcome_install()}
 		</a>
 	</div>

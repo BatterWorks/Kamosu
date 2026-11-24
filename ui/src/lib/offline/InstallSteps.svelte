@@ -49,11 +49,7 @@
 	{#if install.offer && !install.accepted}
 		<!-- Drawn like a card's main action, but here in the body: the card's own
 		     row keeps only "Not now", and Settings has no card to put it in. -->
-		<button
-			type="button"
-			onclick={() => void installKamosu()}
-			class="mt-3 w-full border border-accent bg-accent p-3 text-read text-on-accent"
-		>
+		<button type="button" onclick={() => void installKamosu()} class="mt-3 main-button w-full">
 			{m.offline_install_other_button()}
 		</button>
 	{:else if !install.accepted}

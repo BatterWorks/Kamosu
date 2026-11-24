@@ -1346,7 +1346,8 @@
 	/** A time's hours or minutes box: SMALL, narrower inside, since two share half a phone. */
 	const TIME_BOX =
 		'min-h-12 w-full min-w-0 rounded-sm border border-rule bg-card px-2 text-body text-ink';
-	const QUIET = 'rounded-sm border border-rule px-2 py-1 text-read text-ink-2';
+	/** A small word beside something; the caller gives its ink. Two side by side stand `gap-3` apart (U10). */
+	const QUIET = 'quiet-button';
 	/**
 	 * A tool beside a line or a Step, as a mark and no word (#225): twenty lines
 	 * carried forty words of button. The word is the accessible name, and the
@@ -1360,7 +1361,7 @@
 	 * at a recipe everywhere else (#50). `Correcting.svelte` wears the same one
 	 * on the same act, which is what "one control on both screens" means (#83).
 	 */
-	const MATCHA = 'rounded-sm border border-support-2 px-2 py-1 text-read text-support-2';
+	const MATCHA = 'second-button matcha';
 </script>
 
 <div class="mx-auto recipe-page pb-tabbar">
@@ -1444,11 +1445,7 @@
 		<div class="mx-gutter mt-3 rounded-sm border border-accent bg-card p-4">
 			<h2 class="font-display text-body font-semibold text-ink">{m.write_paste_card_title()}</h2>
 			<p class="mt-1 text-read text-ink-2">{m.write_paste_card_body()}</p>
-			<button
-				type="button"
-				class="mt-3 block w-full rounded-sm bg-accent p-4 text-center font-display text-body text-on-accent"
-				onclick={openPaste}
-			>
+			<button type="button" class="mt-3 main-button w-full" onclick={openPaste}>
 				{m.write_paste_offer()}
 			</button>
 		</div>
@@ -1489,7 +1486,7 @@
 			/>
 		{/if}
 	</div>
-	<div class="flex flex-wrap items-center gap-2 border-b border-rule px-gutter py-2">
+	<div class="flex flex-wrap items-center gap-3 border-b border-rule px-gutter py-2">
 		<label class="{QUIET} cursor-pointer text-accent">
 			{mainPhoto ? m.write_photo_change() : m.write_photo_add()}
 			<input
@@ -1623,7 +1620,11 @@
 													title: row.namedRecipe.title ?? m.write_line_recipe(),
 												})}
 											</button>
-											<button type="button" class={QUIET} onclick={() => (row.namedRecipe = null)}>
+											<button
+												type="button"
+												class="{QUIET} text-ink-2"
+												onclick={() => (row.namedRecipe = null)}
+											>
 												{m.write_line_not_recipe()}
 											</button>
 										{:else}
@@ -1675,17 +1676,17 @@
 				{#if lines.length === 0}
 					<p class="px-gutter py-2 text-read text-ink-2">{m.write_empty_ingredients()}</p>
 				{/if}
-				<div class="flex gap-2 px-gutter pt-2">
+				<div class="flex gap-3 px-gutter pt-2">
 					<button
 						type="button"
-						class="{QUIET} flex-1 text-accent"
+						class="{QUIET} flex-1 whitespace-normal text-accent"
 						onclick={() => addLine('ingredient')}
 					>
 						{m.write_add_line()}
 					</button>
 					<button
 						type="button"
-						class="{QUIET} flex-1 text-accent"
+						class="{QUIET} flex-1 whitespace-normal text-accent"
 						onclick={() => addLine('section')}
 					>
 						{m.write_add_heading()}
@@ -1870,11 +1871,19 @@
 			{#if steps.length === 0}
 				<p class="px-gutter py-2 text-read text-ink-2">{m.write_empty_steps()}</p>
 			{/if}
-			<div class="flex gap-2 px-gutter pt-2">
-				<button type="button" class="{QUIET} flex-1 text-accent" onclick={() => addStep('step')}>
+			<div class="flex gap-3 px-gutter pt-2">
+				<button
+					type="button"
+					class="{QUIET} flex-1 whitespace-normal text-accent"
+					onclick={() => addStep('step')}
+				>
 					{m.write_add_step()}
 				</button>
-				<button type="button" class="{QUIET} flex-1 text-accent" onclick={() => addStep('section')}>
+				<button
+					type="button"
+					class="{QUIET} flex-1 whitespace-normal text-accent"
+					onclick={() => addStep('section')}
+				>
 					{m.write_add_heading()}
 				</button>
 			</div>
@@ -1912,11 +1921,7 @@
 			{/if}
 			<button
 				type="button"
-				class="block w-full p-4 text-center font-display text-body {!wrong
-					? act.grave
-						? 'bg-support text-on-accent'
-						: 'bg-accent text-on-accent'
-					: 'border border-rule text-ink-2'}"
+				class="w-full {act.grave && !wrong ? 'second-button loses' : 'main-button'}"
 				disabled={saving || Boolean(wrong)}
 				onclick={openSheet}
 			>
@@ -2026,8 +2031,9 @@
 			{/if}
 			<button
 				type="button"
-				class="mt-3 block w-full bg-accent p-4 text-center font-display text-body text-on-accent"
+				class="mt-3 main-button w-full"
 				disabled={reading}
+				aria-busy={reading ? 'true' : undefined}
 				onclick={readPaste}
 			>
 				{reading ? m.write_paste_reading() : m.write_paste_read()}
@@ -2057,20 +2063,15 @@
 			</p>
 			<button
 				type="button"
-				class="mt-3 block w-full p-4 text-center font-display text-body text-on-accent {holdsSomething ||
-				replacesTitle
-					? 'bg-support'
-					: 'bg-accent'}"
+				class="mt-3 w-full {holdsSomething || replacesTitle
+					? 'second-button loses'
+					: 'main-button'}"
 				onclick={usePaste}
 			>
 				{m.write_paste_use()}
 			</button>
 		{/if}
-		<button
-			type="button"
-			class="mt-2 block w-full border border-rule p-4 text-center font-display text-body text-ink-2"
-			onclick={() => (pasteOpen = false)}
-		>
+		<button type="button" class="mt-2 second-button w-full" onclick={() => (pasteOpen = false)}>
 			{m.write_back()}
 		</button>
 	</SheetFrame>
@@ -2199,19 +2200,13 @@
 		<p class="mt-1 text-read text-ink-2">{m.write_changed_now()}</p>
 		<button
 			type="button"
-			class="mt-4 block w-full p-4 text-center font-display text-body text-on-accent disabled:opacity-60 {act.grave
-				? 'bg-support'
-				: 'bg-accent'}"
+			class="mt-4 w-full {act.grave ? 'second-button loses' : 'main-button'}"
 			disabled={saving || (beside && variationName.trim() === '')}
 			onclick={save}
 		>
 			{act.does}
 		</button>
-		<button
-			type="button"
-			class="mt-2 block w-full border border-rule p-4 text-center font-display text-body text-ink-2"
-			onclick={() => (asking = false)}
-		>
+		<button type="button" class="mt-2 second-button w-full" onclick={() => (asking = false)}>
 			{m.write_back()}
 		</button>
 	</SheetFrame>

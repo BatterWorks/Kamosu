@@ -90,8 +90,7 @@
 					type="button"
 					onclick={() => answer(join, true)}
 					disabled={busy === join.join_id}
-					class="min-h-12 rounded-sm bg-accent px-4 text-body font-semibold text-on-accent
-					disabled:opacity-60"
+					class="second-button"
 				>
 					{m.cookbook_invite_accept()}
 				</button>
@@ -99,8 +98,7 @@
 					type="button"
 					onclick={() => answer(join, false)}
 					disabled={busy === join.join_id}
-					class="min-h-12 rounded-sm border border-rule px-4 text-body font-medium text-ink-2
-					disabled:opacity-60"
+					class="second-button"
 				>
 					{m.cookbook_join_no()}
 				</button>

@@ -104,13 +104,14 @@
 				waiting={m.offline_waits_keep()}
 				disabled={saving}
 				onclick={keep}
-				shapeClass="mt-3 block min-h-12 w-full rounded-sm px-4 py-3 text-center font-display text-body"
-				lookClass="{forking ? 'bg-support' : 'bg-accent'} text-on-accent disabled:opacity-60"
+				shapeClass="mt-3 second-button w-full"
+				lookClass={forking ? 'loses' : ''}
+				idleClass="text-ink-2 opacity-55"
 			/>
 			<button
 				type="button"
 				onclick={() => (confirming = false)}
-				class="mt-2 block min-h-12 w-full rounded-sm border border-rule px-4 py-3 text-center font-display text-body text-ink-2"
+				class="quiet-button mt-2 w-full whitespace-normal text-ink-2"
 			>
 				{m.recipe_not_now()}
 			</button>
@@ -119,8 +120,9 @@
 				label={forking ? m.recipe_keep_as_copy() : m.recipe_keep_as_version()}
 				waiting={m.offline_waits_keep()}
 				onclick={() => (confirming = true)}
-				shapeClass="mt-3 block min-h-12 w-full rounded-sm px-4 py-3 text-center font-display text-body"
-				lookClass="border border-accent text-accent"
+				shapeClass="mt-3 second-button w-full"
+				lookClass=""
+				idleClass="text-ink-2 opacity-55"
 			/>
 		{/if}
 

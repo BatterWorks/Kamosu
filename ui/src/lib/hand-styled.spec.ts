@@ -33,39 +33,27 @@ import { describe, expect, it } from 'vitest';
 
 const SRC = join(import.meta.dirname, '..');
 
-/** The files #632 found drawing their own, less the share screen it moved, the Kitchens page #648 did, and Settings, Foods, Import history and the Operator's pages #653 did. */
+/**
+ * The files #632 found drawing their own, less the share screen it moved, the
+ * Kitchens page #648 did, Settings, Foods, Import history and the Operator's
+ * pages #653 did, and the files no area ticket owned, which #688 did. Of
+ * those, three wait for a design choice raised on #688: the pasted lines
+ * tapped to split a paste (`PasteCheck`), the cooking pictures to choose
+ * from (`PhotoToRecipe`) and the tiles of the examples to watch (`Replays`).
+ */
 const STILL_HAND_STYLED: string[] = [
-	'lib/Confirm.svelte',
-	'lib/CookbookJoins.svelte',
 	'lib/PasteCheck.svelte',
 	'lib/PhotoToRecipe.svelte',
 	'lib/PlanPicker.svelte',
-	'lib/RefusedExport.svelte',
-	'lib/WhichHousehold.svelte',
-	'lib/adding/PasteSheet.svelte',
 	'lib/adding/Replays.svelte',
-	'lib/adding/SendSheet.svelte',
-	'lib/adding/WatchExamples.svelte',
-	'lib/agent/AgentWork.svelte',
-	'lib/offline/InstallSteps.svelte',
-	'lib/offline/Notice.svelte',
 	'lib/shell/BackArrow.svelte',
 	'lib/shell/PlaceLink.svelte',
 	'routes/+layout.svelte',
-	'routes/Account.svelte',
-	'routes/DemoWelcome.svelte',
-	'routes/cookbook-invite/[secret]/+page.svelte',
-	'routes/cooked/Diary.svelte',
-	'routes/cooked/KeepCooking.svelte',
-	'routes/import/ImportShared.svelte',
-	'routes/kitchen-invite/[secret]/+page.svelte',
 	'routes/plan/ChangeSheet.svelte',
 	'routes/plan/MoveSheet.svelte',
 	'routes/plan/Plan.svelte',
 	'routes/plan/SendToShopping.svelte',
 	'routes/plan/WriteSheet.svelte',
-	'routes/recipes/[branchId]/Writing.svelte',
-	'routes/shared/Shared.svelte',
 ];
 
 const PIECES = [

@@ -118,19 +118,13 @@
 			type="button"
 			onclick={run}
 			disabled={busy}
-			class="min-h-12 rounded-sm border border-support bg-support px-4 text-body font-medium
-			text-card disabled:opacity-60"
+			aria-busy={busy ? 'true' : undefined}
+			class="second-button loses"
 		>
 			{busy ? m.operator_working() : act}
 		</button>
 		{#if instead}
-			<button
-				type="button"
-				onclick={instead.run}
-				disabled={busy}
-				class="min-h-12 rounded-sm border border-accent px-4 text-body font-medium text-accent
-				disabled:opacity-60"
-			>
+			<button type="button" onclick={instead.run} disabled={busy} class="second-button">
 				{instead.label}
 			</button>
 		{/if}

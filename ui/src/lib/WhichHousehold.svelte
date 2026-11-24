@@ -94,18 +94,10 @@
 	<p class="mt-3 text-read text-ink-2">{m.import_household_again()}</p>
 
 	<div class="mt-6 mb-4 flex flex-col gap-2">
-		<button
-			type="button"
-			onclick={bring}
-			class="min-h-12 rounded-sm bg-accent px-4 text-body font-semibold text-on-accent"
-		>
+		<button type="button" onclick={bring} class="main-button">
 			{m.import_household_bring({ count: recipes })}
 		</button>
-		<button
-			type="button"
-			onclick={close}
-			class="min-h-12 rounded-sm border border-accent px-4 text-body font-medium text-accent"
-		>
+		<button type="button" onclick={close} class="second-button">
 			{m.import_household_not_now()}
 		</button>
 	</div>

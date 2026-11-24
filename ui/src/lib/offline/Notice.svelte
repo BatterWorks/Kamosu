@@ -45,8 +45,7 @@
 				<button
 					type="button"
 					onclick={action.act}
-					class="flex-1 border p-3 text-read wide:max-w-[240px]
-					{action.primary ? 'border-accent bg-accent text-on-accent' : 'border-rule text-accent'}"
+					class="flex-1 wide:max-w-[240px] {action.primary ? 'main-button' : 'second-button'}"
 				>
 					{action.label}
 				</button>
