@@ -1449,6 +1449,12 @@
   .shrink-0 {
     flex-shrink: 0;
   }
+  .grow {
+    flex-grow: 1;
+  }
+  .basis-\[calc\(150\*var\(--type-unit\)\)\] {
+    flex-basis: calc(150 * var(--type-unit));
+  }
   .basis-full {
     flex-basis: 100%;
   }

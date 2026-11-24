@@ -30,6 +30,7 @@
 - The small outlined buttons, such as *Rename* and *Sign out*, the arrows beside a shelf on Home, the tools beside a line or a Step while writing a recipe and the outlined buttons of the cooking screen on a phone now answer a tap anywhere within 48 pixels, as they were meant to. Before, their tap area started inside their 1-pixel outline and came out 2 pixels short, at 46. [#634]
 - A printed recipe, a shared recipe's page and a recipe's notes file write an hour in Dutch as *u*, as the app does, so 90 minutes reads *1 u 30 min*. Before, they wrote *h* in every Language. [#667]
 - After you change how much you are making while cooking, the amounts change to match as soon as Kamosu has them, without reloading the page. Before, when the read after the change failed or came back first, the screen could go on saying *Amounts scale to … once Kamosu can be reached* although they already had. [#674]
+- On *Settings › Signing in*, a device's *Sign out*, *End* and *Rename* buttons go under its name when the two do not fit side by side. Before, in Spanish on an iPad mini held upright, they pushed the page sideways past the edge of the screen. [#689]
 
 [#632]: https://github.com/BatterWorks/Kamosu/issues/632
 [#634]: https://github.com/BatterWorks/Kamosu/issues/634
@@ -45,6 +46,7 @@
 [#671]: https://github.com/BatterWorks/Kamosu/issues/671
 [#674]: https://github.com/BatterWorks/Kamosu/issues/674
 [#688]: https://github.com/BatterWorks/Kamosu/issues/688
+[#689]: https://github.com/BatterWorks/Kamosu/issues/689
 
 ## v0.6.0 - 2026-11-13
 
