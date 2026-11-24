@@ -39,6 +39,13 @@
 	button. The Core's refusal is still shown verbatim if it ever arrives, since
 	it is written to be read.
 
+	**SAID ONCE, WHERE IT MATTERS** (#653, approved as drawn on 24 November
+	2026, `.dev/prototypes/653-settings/food.html`). One sentence under the
+	title says what a Food is and that changing it changes no recipe. A row per
+	Language, its name or a dash, with *Add* or *Change*. What a name in
+	another Language does, and why the last name stays, are said inside the
+	form that *Add* and *Change* open, where somebody is deciding.
+
 	**WHAT IS NOT HERE.** No nutrition editor: #72 made nutrition a manual
 	per-recipe field and deferred per-ingredient data, and all 607 Foods answer
 	`nutrition: null` correctly. No merge, no delete, no merge preview: those are
@@ -214,7 +221,7 @@
 	<Screen {card} title={m.loading()} />
 {:else}
 	<Screen {card} title={food.name ?? m.food_unnamed()} blurb={m.food_blurb()}>
-		<p class="text-body text-ink-2">
+		<p class="text-body text-ink">
 			{linesPointingAt(food.reading_count)}
 		</p>
 
@@ -252,7 +259,7 @@
 											type="button"
 											onclick={() => takeOff(index)}
 											aria-label={m.food_name_remove_named({ name: drafts[index].trim() || label })}
-											class="shrink-0 rounded-sm border border-rule px-2 py-2 text-read whitespace-nowrap text-ink-2"
+											class="quiet-button shrink-0 text-support"
 										>
 											{m.food_name_remove()}
 										</button>
@@ -265,35 +272,38 @@
 								placeholder={m.food_name_another({ language: languageName(language) })}
 								class="mt-2 w-full rounded-sm border border-rule bg-ground p-2 text-body"
 							/>
-							<p class="mt-2 text-read text-ink-2">{m.food_names_first_shown()}</p>
-							<div class="mt-2 flex gap-2">
+							<p class="mt-2 text-read text-ink">{m.food_names_first_shown()}</p>
+							<p class="mt-2 text-read text-ink">{m.food_names_not_a_translation()}</p>
+							{#if nameCount <= 1}
+								<p class="mt-2 text-read text-ink">{m.food_keeps_one_name()}</p>
+							{/if}
+							<div class="mt-3 grid grid-cols-2 gap-3">
+								<button type="button" onclick={() => (editing = null)} class="second-button">
+									{m.food_name_cancel()}
+								</button>
 								<button
 									type="submit"
 									disabled={held || (wanted.length === 0 && !namedElsewhere)}
-									class="flex-1 rounded-sm bg-accent p-2 text-center text-read text-on-accent"
+									class="main-button"
 								>
 									{m.food_name_save()}
-								</button>
-								<button
-									type="button"
-									onclick={() => (editing = null)}
-									class="rounded-sm border border-rule px-3 py-2 text-read text-ink-2"
-								>
-									{m.food_name_cancel()}
 								</button>
 							</div>
 						</form>
 					{:else}
 						<div class="flex items-center justify-between gap-3">
 							<span class="min-w-0">
+								<span class="block text-read text-ink-2">{languageName(language)}</span>
 								{#if named.length === 0}
 									<span class="block text-body text-ink-2">
-										{m.food_not_named({ language: languageName(language) })}
+										<span aria-hidden="true">—</span>
+										<span class="sr-only">
+											{m.food_not_named({ language: languageName(language) })}
+										</span>
 									</span>
 								{:else}
 									<span class="block text-body text-ink">{named.join(' · ')}</span>
 								{/if}
-								<span class="text-read text-ink-2">{languageName(language)}</span>
 							</span>
 							<!--
 								The button says `Add` or `Change`, which is all the room a phone
@@ -309,7 +319,7 @@
 								aria-label={named.length === 0
 									? m.food_name_add_in({ language: languageName(language) })
 									: m.food_name_change_in({ language: languageName(language) })}
-								class="shrink-0 rounded-sm border border-rule px-2 py-1 text-read text-ink-2"
+								class="quiet-button shrink-0 text-accent"
 							>
 								{named.length === 0 ? m.food_name_add() : m.food_name_change()}
 							</button>
@@ -317,11 +327,6 @@
 					{/if}
 				</div>
 			{/each}
-
-			{#if nameCount <= 1}
-				<p class="mt-3 text-read text-ink-2">{m.food_keeps_one_name()}</p>
-			{/if}
-			<p class="mt-3 text-read text-ink-2">{m.food_names_not_a_translation()}</p>
 		</Section>
 
 		<Section heading={m.food_cup_weight()}>
@@ -332,22 +337,18 @@
 					void saveCupWeight();
 				}}
 			>
-				<div class="flex gap-2">
+				<div class="flex items-center gap-2">
 					<input
 						bind:value={grams}
 						inputmode="decimal"
 						aria-label={m.food_cup_weight()}
 						placeholder={m.food_cup_weight_none()}
-						class="w-full rounded-sm border border-rule bg-ground p-2 text-body"
+						class="w-40 min-h-12 rounded-sm border border-rule bg-card px-2 text-body"
 					/>
-					<span class="text-body text-ink-2">{m.food_grams()}</span>
+					<span class="text-body text-ink">{m.food_grams()}</span>
 				</div>
-				<p class="mt-2 text-read text-ink-2">{m.food_cup_weight_explained()}</p>
-				<button
-					type="submit"
-					disabled={held}
-					class="mt-3 w-full rounded-sm bg-accent p-2 text-center text-read text-on-accent"
-				>
+				<p class="mt-2 text-read text-ink">{m.food_cup_weight_explained()}</p>
+				<button type="submit" disabled={held} class="mt-3 second-button">
 					{m.food_cup_weight_save()}
 				</button>
 			</form>
@@ -356,7 +357,5 @@
 		{#if said}
 			<p class="mt-4 text-body text-support" role="alert"><Refusal words={said} /></p>
 		{/if}
-
-		<p class="mt-6 text-read text-ink-2">{m.food_changes_no_recipe()}</p>
 	</Screen>
 {/if}

@@ -45,11 +45,7 @@
 			{m.loading()}
 		{/if}
 	</p>
-	<a
-		href="/about"
-		class="mt-3 flex min-h-12 items-center justify-between gap-3 rounded-sm border border-rule
-		bg-card px-3 text-body font-medium text-ink"
-	>
+	<a href="/about" class="mt-3 list-row justify-between border-t border-rule text-body font-medium">
 		{m.story_what_is()}
 		<span aria-hidden="true" class="text-ink-2">›</span>
 	</a>

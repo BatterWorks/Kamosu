@@ -31,7 +31,7 @@
 		<button
 			type="button"
 			onclick={async () => (copied = await copyText(secret))}
-			class="min-h-12 rounded-sm bg-accent px-4 font-semibold text-on-accent"
+			class="main-button"
 		>
 			{copied ? m.access_key_secret_copied() : m.access_key_secret_copy()}
 		</button>

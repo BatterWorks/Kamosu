@@ -202,10 +202,7 @@
 			{:else}
 				<!-- Keyed on source kind, as the phone's list is and for its reason. -->
 				{#each imports as source (source.source_kind)}
-					<a
-						href={sourceAddress(source.source_kind)}
-						class="flex items-center gap-3 border-b border-rule px-gutter pt-4 pb-2"
-					>
+					<a href={sourceAddress(source.source_kind)} class="list-row px-gutter">
 						<span class="min-w-0 flex-1">
 							<span class="block text-label font-medium text-accent uppercase">
 								{sourceName(source.source_kind)}
@@ -224,10 +221,7 @@
 									data-sveltekit-reset="false"
 									aria-current={arrival.job_id === open ? 'page' : undefined}
 									tabindex={arrival.job_id === tabStop ? 0 : -1}
-									class={[
-										'block min-h-12 border-b border-l-3 border-rule px-gutter py-3',
-										arrival.job_id === open ? 'border-l-accent bg-card' : 'border-l-transparent',
-									]}
+									class="list-row block px-gutter"
 								>
 									<span class="block text-body leading-tight text-ink">
 										{whenArrived(arrival.created_at)}
@@ -256,14 +250,11 @@
 				     Import is unique per `(cookbook_id, source_kind)` and the answer
 				     holds one Cookbook's, the caller's own (#131). Two rows of one
 				     kind would be a duplicate key AND two identical hrefs. -->
-				<ul class="grid gap-2">
+				<ul class="list-rows">
 					{#each imports as source (source.source_kind)}
 						{@const last = lastArrival(source)}
 						<li>
-							<a
-								href={sourceAddress(source.source_kind)}
-								class="flex min-h-12 items-center gap-3 rounded-sm border border-rule bg-card px-3 py-3"
-							>
+							<a href={sourceAddress(source.source_kind)} class="list-row">
 								<span class="min-w-0 flex-1">
 									<span class="block text-body font-medium text-ink">
 										{sourceName(source.source_kind)}

@@ -1,6 +1,7 @@
 /**
- * Settings' menu: four groups by whose a thing is, and a page for each job
- * (#469, option C of 26 October 2026).
+ * Settings' menu: groups by whose a thing is, and a page for each job
+ * (#469, option C of 26 October 2026; reordered and reworded by #653,
+ * option C of 24 November 2026).
  *
  * It was seven pages that mixed what is yours, what is the household's and
  * what is the instance's, and the Operator screen beside them behind a link.
@@ -10,7 +11,14 @@
  * what is inside. The prototype is `.dev/prototypes/469-settings/`, its
  * `c-menu-phone.html` and `c-menu-macbook.html`.
  *
- * Foods and What has been brought in keep their own screens at `/foods` and
+ * #653 put the Language row first, named in every Language Kamosu speaks,
+ * since the person who needs another language is the least able to read an
+ * English list, and the people you cook with next, each row saying which one
+ * invites people to do what. Titles stayed short; four that said Kamosu's own
+ * words were renamed, and every line under a title is in full ink. The
+ * prototype is `.dev/prototypes/653-settings/menu-C.html`.
+ *
+ * Foods and Import history keep their own screens at `/foods` and
  * `/imports`, since each is a list with what is open beside it (#199).
  */
 
@@ -41,32 +49,14 @@ export const NAME_PAGE = '/settings/name';
 /** The page the wide layout opens beside the menu when none is named. */
 export const FIRST_PAGE = '/settings/signing-in';
 
+/** First under your name, outside the groups, in every Language at once. */
+export const LANGUAGE: PageEntry = {
+	href: '/settings/language',
+	title: m.settings_language_row,
+	inside: m.settings_language_inside,
+};
+
 export const GROUPS: Group[] = [
-	{
-		heading: m.settings_group_you,
-		entries: [
-			{ href: FIRST_PAGE, title: m.settings_signing_in, inside: m.settings_signing_in_inside },
-			{ href: '/settings/keys', title: m.settings_keys, inside: m.settings_keys_inside },
-			// The Calendar Link (#491). A Demo refuses making one, so it does not offer the page.
-			{
-				href: '/settings/calendar',
-				title: m.settings_calendar,
-				inside: m.settings_calendar_inside,
-				offered: () => !demo.is,
-			},
-			{
-				href: '/settings/language',
-				title: m.settings_language_page,
-				inside: m.settings_language_inside,
-			},
-			{ href: '/settings/device', title: m.settings_device, inside: m.settings_device_inside },
-			{
-				href: '/settings/security',
-				title: m.settings_security_record,
-				inside: () => m.settings_security_record_inside({ days: KEPT_FOR_DAYS }),
-			},
-		],
-	},
 	{
 		heading: m.settings_group_household,
 		entries: [
@@ -80,6 +70,31 @@ export const GROUPS: Group[] = [
 				title: m.settings_cookbook,
 				inside: m.settings_cookbook_inside,
 			},
+		],
+	},
+	{
+		heading: m.settings_group_you,
+		entries: [
+			{ href: FIRST_PAGE, title: m.settings_signing_in, inside: m.settings_signing_in_inside },
+			{ href: '/settings/keys', title: m.settings_keys, inside: m.settings_keys_inside },
+			// The Calendar Link (#491). A Demo refuses making one, so it does not offer the page.
+			{
+				href: '/settings/calendar',
+				title: m.settings_calendar,
+				inside: m.settings_calendar_inside,
+				offered: () => !demo.is,
+			},
+			{ href: '/settings/device', title: m.settings_device, inside: m.settings_device_inside },
+			{
+				href: '/settings/security',
+				title: m.settings_security_record,
+				inside: () => m.settings_security_record_inside({ days: KEPT_FOR_DAYS }),
+			},
+		],
+	},
+	{
+		heading: m.settings_group_recipes,
+		entries: [
 			{ href: '/settings/tags', title: m.settings_tags, inside: m.settings_tags_inside },
 			{ href: '/foods', title: m.settings_foods, inside: m.settings_foods_inside },
 		],

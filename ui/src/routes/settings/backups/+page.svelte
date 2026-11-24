@@ -79,11 +79,7 @@
 					<span class="block text-read text-ink-2">{backup.slot} · {weight(backup.size_bytes)}</span
 					>
 				</span>
-				<a
-					href="/api/backups/{backup.name}"
-					class="min-h-12 shrink-0 content-center rounded-sm border border-accent px-3 text-read
-					font-medium text-accent"
-				>
+				<a href="/api/backups/{backup.name}" class="second-button shrink-0">
 					{m.operator_backup_get()}
 				</a>
 			</li>
@@ -91,13 +87,7 @@
 			<li class="p-3 text-body text-ink-2">{m.operator_backups_empty()}</li>
 		{/each}
 	</ul>
-	<button
-		type="button"
-		disabled={taking}
-		onclick={take}
-		class="mt-3 min-h-12 w-full rounded-sm border border-accent px-4 text-body font-medium
-		text-accent disabled:opacity-60"
-	>
+	<button type="button" disabled={taking} onclick={take} class="mt-3 second-button w-full">
 		{taking ? saying || m.operator_working() : m.operator_backup_take()}
 	</button>
 </OperatorOnly>

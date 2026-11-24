@@ -3,6 +3,11 @@
 	Operator screen's Worklist, the things that pile up and want working
 	through. Foods that look alike, Foods no recipe uses, the Photographs
 	nothing shows, and reading every Ingredient Line again.
+
+	Under two screenfuls (#653, approved as drawn on 24 November 2026,
+	`.dev/prototypes/653-settings/upkeep.html`): the pairs that look alike are
+	counted and fold behind one button, and the unused Foods show five at a
+	time, with the whole count said above them.
 -->
 <script lang="ts">
 	import Refusal from '#lib/Refusal.svelte';
@@ -35,12 +40,15 @@
 	let foods = $state<Food[]>([]);
 
 	/**
-	 * How many unused Foods are listed at once. A library can carry hundreds,
-	 * and a phone showing all of them is a scroll nobody works through. The
-	 * line under the list says the whole figure rather than letting the cap
-	 * pass for the total.
+	 * How many unused Foods show at first, and how many more each tap brings.
+	 * A library can carry hundreds, and a phone showing all of them is a scroll
+	 * nobody works through. The line above the list says the whole figure.
 	 */
-	const SHOWN = 20;
+	const FIRST_SHOWN = 5;
+	const MORE_SHOWN = 15;
+	let shown = $state(FIRST_SHOWN);
+	/** Whether the pairs that look alike are open. */
+	let pairsOpen = $state(false);
 
 	/** A Food nothing points at is the only kind `delete_food` will take. */
 	const unused = $derived(foods.filter((food) => food.reading_count === 0));
@@ -248,11 +256,7 @@
 				{/each}
 			</ul>
 			{#if !allChanges && done.changed.length > CHANGES_SHOWN}
-				<button
-					type="button"
-					onclick={() => (allChanges = true)}
-					class="min-h-12 text-read text-accent underline"
-				>
+				<button type="button" onclick={() => (allChanges = true)} class="mt-2 second-button">
 					{m.operator_lines_show_all({ count: done.changed.length })}
 				</button>
 			{/if}
@@ -274,22 +278,40 @@
 				<p class="mt-1 text-body text-ink-2">{m.operator_merge_empty()}</p>
 			</div>
 		{:else}
-			<ul class="overflow-hidden rounded-sm border border-rule bg-card">
+			<p class="text-read text-ink">
+				{suggestions.length === 1
+					? m.operator_merge_pairs_one()
+					: m.operator_merge_pairs({ count: suggestions.length })}
+			</p>
+			<button
+				type="button"
+				aria-expanded={pairsOpen}
+				onclick={() => (pairsOpen = !pairsOpen)}
+				class="mt-3 second-button"
+			>
+				{pairsOpen
+					? m.operator_merge_fold()
+					: suggestions.length === 1
+						? m.operator_merge_look_one()
+						: m.operator_merge_look({ count: suggestions.length })}
+			</button>
+		{/if}
+		{#if suggestions.length > 0 && pairsOpen}
+			<ul class="mt-3 border-t border-rule">
 				{#each suggestions as suggestion (suggestion.foods[0].id + suggestion.foods[1].id)}
-					<li class="border-b border-rule p-3 last:border-b-0">
+					<li class="border-b border-rule py-3">
 						<p class="text-body font-medium text-ink">
 							{telling(suggestion.foods[0], suggestion.foods[1])} ·
 							{telling(suggestion.foods[1], suggestion.foods[0])}
 						</p>
-						<p class="mt-1 text-read text-ink-2">{because(suggestion.reason)}</p>
+						<p class="mt-1 text-read text-ink">{because(suggestion.reason)}</p>
 						<div class="mt-2 flex flex-wrap gap-2">
 							{#each suggestion.foods as keep, index (keep.id)}
 								<button
 									type="button"
 									disabled={acting.working}
 									onclick={() => askMerge(keep, suggestion.foods[index === 0 ? 1 : 0])}
-									class="min-h-12 rounded-sm border border-accent px-3 text-read font-medium
-									text-accent disabled:opacity-60"
+									class="second-button"
 								>
 									{m.operator_merge_keep({
 										food: telling(keep, suggestion.foods[index === 0 ? 1 : 0]),
@@ -307,35 +329,36 @@
 		{#if unused.length === 0}
 			<p class="text-body text-ink-2">{m.operator_unused_empty()}</p>
 		{:else}
-			<ul class="overflow-hidden rounded-sm border border-rule bg-card">
-				{#each unused.slice(0, SHOWN) as food (food.id)}
-					<li class="flex items-center gap-3 border-b border-rule p-3 last:border-b-0">
-						<span class="min-w-0 flex-1">
-							<span class="block truncate text-body text-ink">{naming(food)}</span>
-							<span class="block text-read text-ink-2">{m.operator_unused_none()}</span>
-						</span>
+			<p class="text-read text-ink">
+				{unused.length === 1
+					? m.operator_unused_count_one()
+					: m.operator_unused_count({ count: unused.length })}
+			</p>
+			<ul class="mt-2 border-t border-rule">
+				{#each unused.slice(0, shown) as food (food.id)}
+					<li class="flex items-center gap-3 border-b border-rule py-2">
+						<span class="min-w-0 flex-1 truncate text-body text-ink">{naming(food)}</span>
 						<button
 							type="button"
 							disabled={acting.working}
 							onclick={() => (asking = { kind: 'delete-food', food })}
-							class="min-h-12 shrink-0 rounded-sm border border-support px-3 text-read
-							font-medium text-support disabled:opacity-60"
+							class="second-button shrink-0 loses"
 						>
 							{m.operator_delete()}
 						</button>
 					</li>
 				{/each}
 			</ul>
-			<p class="mt-2 text-read text-ink-2">
-				{unused.length > SHOWN
-					? m.operator_unused_capped({ shown: SHOWN, count: unused.length })
-					: m.operator_unused_kept({ count: unused.length })}
-			</p>
+			{#if unused.length > shown}
+				<button type="button" onclick={() => (shown += MORE_SHOWN)} class="mt-3 second-button">
+					{m.operator_unused_more({ count: Math.min(MORE_SHOWN, unused.length - shown) })}
+				</button>
+			{/if}
 		{/if}
 	</Section>
 
 	<Section heading={m.operator_photographs_heading()}>
-		<p class="mb-3 text-read text-ink-2">
+		<p class="mb-3 text-read text-ink">
 			{swept
 				? m.operator_photographs_swept({ swept: swept.swept, kept: swept.referenced })
 				: m.operator_photographs_blurb()}
@@ -344,21 +367,20 @@
 			type="button"
 			disabled={acting.working}
 			onclick={() => (asking = { kind: 'sweep' })}
-			class="min-h-12 w-full rounded-sm border border-accent px-4 text-body font-medium
-			text-accent disabled:opacity-60"
+			class="second-button"
 		>
 			{m.operator_photographs_sweep()}
 		</button>
 	</Section>
 
 	<Section heading={m.operator_lines_heading()}>
-		<p class="mb-3 text-read text-ink-2">{m.operator_lines_blurb()}</p>
+		<p class="mb-3 text-read text-ink">{m.operator_lines_blurb()}</p>
 		<button
 			type="button"
 			disabled={readingLines}
+			aria-busy={readingLines ? 'true' : undefined}
 			onclick={readLines}
-			class="min-h-12 w-full rounded-sm border border-accent px-4 text-body font-medium
-			text-accent disabled:opacity-60"
+			class="second-button"
 		>
 			{readingLines ? m.operator_working() : m.operator_lines_run()}
 		</button>

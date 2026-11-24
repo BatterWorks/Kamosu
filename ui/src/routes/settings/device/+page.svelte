@@ -40,11 +40,7 @@
 							date: aDate(library.filledAt),
 						})}
 					</p>
-					<button
-						type="button"
-						onclick={() => void library.fill()}
-						class="min-h-12 rounded-sm border border-rule bg-card px-4 text-body text-accent"
-					>
+					<button type="button" onclick={() => void library.fill()} class="second-button">
 						{m.offline_phone_refresh()}
 					</button>
 				{:else if library.phase === 'absent'}
@@ -54,11 +50,7 @@
 							size: readableSize(library.bytes),
 						})}
 					</p>
-					<button
-						type="button"
-						onclick={() => void library.fill()}
-						class="min-h-12 rounded-sm border border-accent bg-accent px-4 text-body text-on-accent"
-					>
+					<button type="button" onclick={() => void library.fill()} class="main-button">
 						{m.offline_library_fetch()}
 					</button>
 				{/if}

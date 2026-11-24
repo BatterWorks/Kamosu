@@ -33,11 +33,10 @@ import { describe, expect, it } from 'vitest';
 
 const SRC = join(import.meta.dirname, '..');
 
-/** The files #632 found drawing their own, less the share screen it moved and the Kitchens page #648 did. */
+/** The files #632 found drawing their own, less the share screen it moved, the Kitchens page #648 did, and Settings, Foods, Import history and the Operator's pages #653 did. */
 const STILL_HAND_STYLED: string[] = [
 	'lib/Confirm.svelte',
 	'lib/CookbookJoins.svelte',
-	'lib/OneTimeSecret.svelte',
 	'lib/PasteCheck.svelte',
 	'lib/PhotoToRecipe.svelte',
 	'lib/PlanPicker.svelte',
@@ -50,8 +49,6 @@ const STILL_HAND_STYLED: string[] = [
 	'lib/agent/AgentWork.svelte',
 	'lib/offline/InstallSteps.svelte',
 	'lib/offline/Notice.svelte',
-	'lib/operator/HouseNotes.svelte',
-	'lib/operator/RunnerKeySecret.svelte',
 	'lib/shell/BackArrow.svelte',
 	'lib/shell/PlaceLink.svelte',
 	'routes/+layout.svelte',
@@ -60,12 +57,7 @@ const STILL_HAND_STYLED: string[] = [
 	'routes/cookbook-invite/[secret]/+page.svelte',
 	'routes/cooked/Diary.svelte',
 	'routes/cooked/KeepCooking.svelte',
-	'routes/foods/FoodList.svelte',
-	'routes/foods/[foodId]/Food.svelte',
 	'routes/import/ImportShared.svelte',
-	'routes/imports/Imports.svelte',
-	'routes/imports/[jobId]/Report.svelte',
-	'routes/imports/[jobId]/SendAgain.svelte',
 	'routes/kitchen-invite/[secret]/+page.svelte',
 	'routes/plan/ChangeSheet.svelte',
 	'routes/plan/MoveSheet.svelte',
@@ -73,24 +65,6 @@ const STILL_HAND_STYLED: string[] = [
 	'routes/plan/SendToShopping.svelte',
 	'routes/plan/WriteSheet.svelte',
 	'routes/recipes/[branchId]/Writing.svelte',
-	'routes/settings/CalendarLink.svelte',
-	'routes/settings/ChangePassword.svelte',
-	'routes/settings/Passkeys.svelte',
-	'routes/settings/SentToAgent.svelte',
-	'routes/settings/SettingsMenu.svelte',
-	'routes/settings/ShareFromYourPhone.svelte',
-	'routes/settings/SignOut.svelte',
-	'routes/settings/SigningIn.svelte',
-	'routes/settings/about/+page.svelte',
-	'routes/settings/address/+page.svelte',
-	'routes/settings/backups/+page.svelte',
-	'routes/settings/device/+page.svelte',
-	'routes/settings/keys/+page.svelte',
-	'routes/settings/language/+page.svelte',
-	'routes/settings/name/+page.svelte',
-	'routes/settings/people/+page.svelte',
-	'routes/settings/runner/+page.svelte',
-	'routes/settings/upkeep/+page.svelte',
 	'routes/shared/Shared.svelte',
 ];
 

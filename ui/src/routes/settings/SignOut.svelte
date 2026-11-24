@@ -119,7 +119,7 @@
 		{said.title}
 	</h2>
 
-	<p class="mt-3 border-l-2 border-accent pl-3 text-body text-ink-2">{said.consequence}</p>
+	<p class="mt-3 border-l-2 border-accent pl-3 text-body text-ink">{said.consequence}</p>
 
 	{#if doing.at === 'sending'}
 		<p class="mt-3 text-read text-ink-2" role="status">{m.sign_out_sending()}</p>
@@ -135,27 +135,20 @@
 				type="button"
 				onclick={signOut}
 				disabled={doing.at !== 'asking'}
-				class="min-h-12 rounded-sm border border-accent bg-accent px-4 text-body font-medium
-				text-card disabled:opacity-60"
+				aria-busy={doing.at === 'leaving' ? 'true' : undefined}
+				class="main-button"
 			>
 				{doing.at === 'leaving' ? m.sign_out_working() : m.sign_out()}
 			</button>
 		{:else}
-			<button
-				type="button"
-				onclick={send}
-				disabled={doing.at !== 'warning'}
-				class="min-h-12 rounded-sm border border-accent bg-accent px-4 text-body font-medium
-				text-card disabled:opacity-60"
-			>
+			<button type="button" onclick={send} disabled={doing.at !== 'warning'} class="main-button">
 				{m.sign_out_wait()}
 			</button>
 			<button
 				type="button"
 				onclick={signOut}
 				disabled={doing.at !== 'warning'}
-				class="min-h-12 rounded-sm border border-support px-4 text-body font-medium
-				text-support disabled:opacity-60"
+				class="second-button loses"
 			>
 				{doing.at === 'leaving' ? m.sign_out_working() : m.sign_out_anyway()}
 			</button>

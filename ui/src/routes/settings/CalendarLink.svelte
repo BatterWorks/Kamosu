@@ -81,19 +81,13 @@
 		<p class="text-body font-semibold text-ink">{m.calendar_link_once()}</p>
 		<code class="mt-2 block rounded-sm bg-ground p-2 text-read break-all select-all">{made}</code>
 		{#if apple}
-			<a
-				href={made.replace(/^https?:/, 'webcal:')}
-				class="mt-3 flex min-h-12 items-center justify-center rounded-sm bg-accent px-4 font-semibold text-on-accent"
-			>
+			<a href={made.replace(/^https?:/, 'webcal:')} class="mt-3 main-button">
 				{m.calendar_link_add_apple()}
 			</a>
 		{/if}
 		<button
 			type="button"
-			class={[
-				'mt-3 min-h-12 w-full rounded-sm px-4 font-semibold',
-				apple ? 'border border-accent bg-card text-accent' : 'bg-accent text-on-accent',
-			]}
+			class={['mt-3 w-full', apple ? 'second-button' : 'main-button']}
 			onclick={async () => (copied = await copyText(made ?? ''))}
 		>
 			{copied ? m.calendar_link_copied() : m.calendar_link_copy()}
@@ -128,16 +122,16 @@
 			waiting={m.calendar_link_waits()}
 			disabled={busy}
 			onclick={() => void make()}
-			shapeClass="min-h-12 rounded-sm px-4 font-semibold disabled:opacity-60"
-			lookClass="border border-accent bg-card text-accent"
+			shapeClass="second-button"
+			lookClass=""
 		/>
 		<NeedsServer
 			label={m.calendar_link_stop()}
 			waiting={m.calendar_link_waits()}
 			disabled={busy}
 			onclick={() => void stop()}
-			shapeClass="min-h-12 rounded-sm px-4 font-semibold disabled:opacity-60"
-			lookClass="border border-rule bg-card text-ink"
+			shapeClass="second-button loses"
+			lookClass=""
 		/>
 	</div>
 	<p class="mt-2 text-read text-ink-2">{m.calendar_link_new_stops_old()}</p>
@@ -168,7 +162,7 @@
 		waiting={m.calendar_link_waits()}
 		disabled={busy}
 		onclick={() => void make()}
-		shapeClass="mt-6 min-h-12 w-full rounded-sm px-4 font-semibold disabled:opacity-60"
-		lookClass="bg-accent text-on-accent"
+		shapeClass="main-button mt-6 w-full"
+		lookClass=""
 	/>
 {/if}

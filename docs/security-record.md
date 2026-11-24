@@ -2,7 +2,7 @@
 
 Kamosu keeps a record of what happens at its doors: signing in, wrong
 passwords, keys, passkeys and changes to the instance (#371). A Person reads
-their own in **Settings › Your security record**, and an Operator reads the
+their own in **Settings › Sign-in history**, and an Operator reads the
 instance's in **Settings › Instance security record**. An agent reads them through the
 `list_security_record` and `list_instance_security_record` Operations.
 Events are kept 90 days.

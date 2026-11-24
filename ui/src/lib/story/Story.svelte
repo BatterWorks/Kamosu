@@ -550,12 +550,20 @@
 	.langs {
 		display: flex;
 		align-items: center;
+		/* 8px between one letter's tapped area and the next (#653, U10): they
+		   stood 3.9px apart. */
+		gap: 8px;
 		font-size: var(--text-label);
 		letter-spacing: 0.08em;
 		color: var(--color-ink-2);
 	}
 	.langs span {
 		opacity: 0.5;
+	}
+	/* Each letter tapped at 48px, 8px from the next (#653, U10). */
+	.chrome .langs button {
+		min-width: 48px;
+		min-height: 48px;
 	}
 	.chrome button {
 		font: inherit;
@@ -598,7 +606,9 @@
 	/* ---- tap zones: left edge goes back, the rest goes forward ---- */
 	.tap {
 		position: absolute;
-		top: 64px;
+		/* 8px under the row of letters and Skip, which ends at 68px since the
+		   letters are tapped at 48 (#653, U10). */
+		top: 76px;
 		bottom: 0;
 		z-index: 4;
 		background: none;

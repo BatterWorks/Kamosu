@@ -82,10 +82,7 @@
 			{#if failed}
 				<p class="text-body text-accent" role="alert"><Refusal words={failed} /></p>
 			{/if}
-			<button
-				class="min-h-12 rounded-sm bg-accent px-4 font-semibold text-on-accent disabled:opacity-60"
-				disabled={renaming || draft.trim() === name}
-			>
+			<button class="main-button" disabled={renaming || draft.trim() === name}>
 				{m.you_name_confirm()}
 			</button>
 		</form>

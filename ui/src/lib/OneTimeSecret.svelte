@@ -54,7 +54,7 @@
 	>
 	<button
 		type="button"
-		class="mt-3 min-h-12 w-full rounded-sm bg-accent px-4 font-semibold text-on-accent"
+		class="mt-3 main-button w-full"
 		onclick={async () => (wentOnClipboard = await copyText(secret))}
 		{@attach focuses}
 	>

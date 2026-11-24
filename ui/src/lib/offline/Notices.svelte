@@ -19,6 +19,7 @@
 	far a fill asked for there has got.
 -->
 <script lang="ts">
+	import { afterNavigate } from '$app/navigation';
 	import { useRoom } from '#lib/room.svelte.js';
 	import { signingIn } from '#lib/shell/signing-in.svelte.js';
 	import { aDate } from '#lib/dates.js';
@@ -31,7 +32,7 @@
 	import { Online, install, onNetworkChange, thisDevice, type Device } from './device.svelte';
 	import { readableSize, sessions, useLibrary } from './library.svelte';
 	import { standing } from './standing.svelte';
-	import { putAway, wasPutAway } from './put-away';
+	import { justChangedWords, putAway, wasPutAway } from './put-away';
 
 	interface Props {
 		/** The facts the cards are chosen from. The app reads this browser; a test brings its own. */
@@ -49,6 +50,13 @@
 	let offlineAway = $state<number | undefined>(undefined);
 	let insecureAway = $state(wasPutAway('insecure'));
 	let installAway = $state(wasPutAway('install'));
+	// Not on the page that loads right after Kamosu's words changed, which
+	// carries the line saying so (#653, G9): the card waits for the next page
+	// this visit moves to.
+	let wordsJustChanged = $state(justChangedWords());
+	afterNavigate(({ type }) => {
+		if (type !== 'enter') wordsJustChanged = false;
+	});
 	let libraryLater = $state(false);
 	/** Whether this device has heard if it is a Demo, which a first arrival has not. */
 	let asked = $state(false);
@@ -87,6 +95,7 @@
 			!device.installed &&
 			!install.accepted &&
 			!installAway &&
+			!wordsJustChanged &&
 			!room.wide &&
 			signingIn.signedIn === true
 		)

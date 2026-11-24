@@ -354,4 +354,26 @@ describe('the list of everything sent to the AI agent (#463)', () => {
 		expect(await screen.findByText(/Nothing sent to the AI agent yet\./)).toBeInTheDocument();
 		expect(screen.queryByRole('group')).not.toBeInTheDocument();
 	});
+
+	it('shows the newest 20 first, and 20 older on each tap (#653)', async () => {
+		const many = Array.from({ length: 45 }, (_, index) =>
+			sent({
+				link: `https://example.com/recipe-${index}`,
+				status: 'completed',
+				ended_at: daysAgo(index),
+				created_at: daysAgo(index),
+				recipe: { branch_id: `b_${index}`, title: `Recipe ${index}` },
+			}),
+		);
+		sentPage(many);
+
+		expect(await screen.findByText('Recipe 0')).toBeInTheDocument();
+		expect(screen.getByText('Recipe 19')).toBeInTheDocument();
+		expect(screen.queryByText('Recipe 20')).not.toBeInTheDocument();
+		await fireEvent.click(screen.getByRole('button', { name: 'Show 20 older' }));
+		expect(screen.getByText('Recipe 39')).toBeInTheDocument();
+		await fireEvent.click(screen.getByRole('button', { name: 'Show 5 older' }));
+		expect(screen.getByText('Recipe 44')).toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: /older$/ })).toBeNull();
+	});
 });

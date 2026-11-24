@@ -125,7 +125,7 @@ port, and it sends your data nowhere.
   on the night. Write "leftovers" or "eating out" on a day, and move things
   around as the week changes. Send planned days to your shopping list, or
   subscribe to your plan in Apple Calendar or Google Calendar from
-  **Settings › Your plan in your calendar**. A Mealie backup brings its
+  **Settings › Calendar**. A Mealie backup brings its
   household's meal plan in too.
 - **A shopping list worked out from recipes.** Pick dishes and how many you are
   cooking for. Flour from three recipes becomes one row, added together where
@@ -269,7 +269,7 @@ a proxy must not speak HTTP/2 to it in the clear.
 
 ## Connecting an agent
 
-In Kamosu, open **Settings › Keys for agents**, and create an Access Key. Tick
+In Kamosu, open **Settings › Keys**, and create an Access Key. Tick
 **Read-only** if the agent only needs to look things up. The key is shown once.
 Put it in an environment variable, `KAMOSU_ACCESS_KEY` below, in the
 environment that starts your agent. Kamosu's MCP endpoint is
