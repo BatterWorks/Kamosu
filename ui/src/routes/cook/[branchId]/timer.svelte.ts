@@ -30,7 +30,13 @@ export interface Timer {
 	dispose(): void;
 }
 
-export function timer(now: () => number = Date.now): Timer {
+/**
+ * @param now the clock, which a test replaces
+ * @param onRing called once as a timer reaches zero, for the sound and the buzz
+ *   the screen makes then: a cook looking at the pan does not see the chip change
+ *   (#681)
+ */
+export function timer(now: () => number = Date.now, onRing: () => void = () => {}): Timer {
 	let endsAt = $state<number | null>(null);
 	let remaining = $state<number | null>(null);
 	let ticking: ReturnType<typeof setInterval> | undefined;
@@ -39,7 +45,10 @@ export function timer(now: () => number = Date.now): Timer {
 		if (endsAt === null) return;
 		const left = Math.ceil((endsAt - now()) / 1000);
 		remaining = left > 0 ? left : 0;
-		if (remaining === 0) stopTicking();
+		if (remaining === 0) {
+			stopTicking();
+			onRing();
+		}
 	}
 
 	function stopTicking() {

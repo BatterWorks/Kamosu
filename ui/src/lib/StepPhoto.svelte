@@ -68,13 +68,15 @@
 		/>
 		<!-- `bg-transparent` is said outright because this button lies over the
 		     whole photograph: with a fill of its own, even none, the shade
-		     everything else takes under the pointer leaves it alone (#203). -->
+		     everything else takes under the pointer leaves it alone (#203).
+		     Its word stands below the phone's clock bar, where it sat under it
+		     on an iPhone with Kamosu installed (#681). -->
 		<button
 			type="button"
-			class="absolute inset-0 flex items-start justify-end bg-transparent p-4 text-body text-cook-ink"
+			class="absolute inset-0 flex items-start justify-end bg-transparent px-4 pt-safe pb-4 text-body text-cook-ink"
 			onclick={() => (open = false)}
 		>
-			{m.photo_close()}
+			<span class="mt-2">{m.photo_close()}</span>
 		</button>
 	</SheetFrame>
 {/if}
