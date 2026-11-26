@@ -1949,6 +1949,7 @@ pub(super) fn written_language(conn: &Connection, version_id: &str) -> Result<St
 
 /// One Reading that might carry a measurement, with the effective Cup Weight of
 /// the Food it points at.
+#[derive(Clone)]
 pub(super) struct Measurable {
     pub(super) line_index: i64,
     pub(super) amount: Option<String>,
@@ -2010,6 +2011,133 @@ impl Measurable {
         }
         .map_or(Value::Null, Value::from)
     }
+}
+
+/// **A cooking's own Ingredient Lines, read and measured for its cook** (#713):
+/// one slot per line of the As Cooked, in the shapes a Version's `readings`
+/// and `measured.ingredients` have, and the Yield they were scaled to.
+///
+/// The cooking screen's editor holds the recipe's own amounts, so a line the
+/// cook rewrote or added is scaled to the Yield being cooked exactly as the
+/// recipe's lines are, and converted to the cook's measures with them.
+///
+/// **Nothing is stored.** An As Cooked has no Readings of its own (they arrive
+/// at Promotion, see `set_as_cooked`), so each line is read here, on every
+/// read, as `measured` itself is worked out. A line left word for word as the
+/// Version cooked has it takes that line's stored Reading, or none where it
+/// has none, so a Reading a person corrected or cleared stays so. Any other
+/// line is read afresh; it takes
+/// the Cup Weight of the Version's line naming the same Food, else the one
+/// Kamosu ships. A line Kamosu cannot read has a null in both slots and stays
+/// as written, as any line does.
+pub(super) fn as_cooked_measured(
+    conn: &Connection,
+    cooked_from_version_id: &str,
+    as_cooked: &Value,
+    reader: &Reader,
+    cooking_yield: &Value,
+) -> Result<AsCookedMeasured, OpError> {
+    let cooked_from: Value = conn
+        .query_row(
+            "SELECT content FROM versions WHERE id = ?1",
+            params![cooked_from_version_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|e| OpError::internal(format!("cannot read the Version cooked: {e}")))?
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or(Value::Null);
+    let no_lines = Vec::new();
+    let recipe_lines = cooked_from["ingredients"].as_array().unwrap_or(&no_lines);
+    let stored = readings_to_measure(conn, cooked_from_version_id)?;
+    let stored_slots = readings_for_version(conn, cooked_from_version_id, recipe_lines.len())?;
+    let written_in_language = written_language(conn, cooked_from_version_id)?;
+    // Scaled against the Yield the Version cooked was written for, as its own
+    // lines are in `get_recipe`.
+    let scale = yield_scale(cooking_yield, &cooked_from["yield"]);
+
+    let mut readings = Vec::new();
+    let mut measured = Vec::new();
+    for line in as_cooked["ingredients"].as_array().unwrap_or(&no_lines) {
+        let text = line["text"]
+            .as_str()
+            .filter(|_| line["kind"] == "ingredient");
+        let Some(text) = text else {
+            readings.push(Value::Null);
+            measured.push(Value::Null);
+            continue;
+        };
+        let as_the_recipe_has_it = recipe_lines.iter().position(|recipe_line| {
+            recipe_line["kind"] == "ingredient"
+                && recipe_line["text"].as_str().map(str::trim) == Some(text.trim())
+        });
+        let (reading, measurable) = match as_the_recipe_has_it {
+            Some(index) => {
+                let kept = stored
+                    .iter()
+                    .find(|reading| usize::try_from(reading.line_index) == Ok(index));
+                let Some(kept) = kept else {
+                    readings.push(Value::Null);
+                    measured.push(Value::Null);
+                    continue;
+                };
+                (stored_slots[index].clone(), kept.clone())
+            }
+            None => {
+                let Some(read) = crate::reading::read_line(text, &written_in_language) else {
+                    readings.push(Value::Null);
+                    measured.push(Value::Null);
+                    continue;
+                };
+                let same_food = |reading: &&Measurable| {
+                    reading.target.as_deref().map(str::to_lowercase)
+                        == read.target.as_deref().map(str::to_lowercase)
+                };
+                let cup_weight = stored
+                    .iter()
+                    .find(|reading| read.target.is_some() && same_food(reading))
+                    .and_then(|reading| reading.cup_weight)
+                    .or_else(|| units::shipped_cup_weight(read.target.as_deref()));
+                (
+                    json!({
+                        "amount": read.amount,
+                        "unit": read.unit,
+                        "target": read.target,
+                        "lineage_id": Value::Null,
+                    }),
+                    Measurable {
+                        line_index: -1,
+                        amount: read.amount,
+                        unit: read.unit,
+                        target: read.target,
+                        cup_weight,
+                        written_in_language: written_in_language.clone(),
+                        food_id: None,
+                    },
+                )
+            }
+        };
+        measured.push(measurable.worded(reader, scale, Some(text)));
+        readings.push(reading);
+    }
+    Ok(AsCookedMeasured {
+        readings,
+        ingredients: measured,
+        // Said as a Version's `scaled_to` is, so a screen holding a Yield the
+        // Core has not measured for yet can tell (#77).
+        scaled_to: if scale == 1.0 {
+            Value::Null
+        } else {
+            cooking_yield.clone()
+        },
+    })
+}
+
+/// What [`as_cooked_measured`] answers.
+pub(super) struct AsCookedMeasured {
+    pub(super) readings: Vec<Value>,
+    pub(super) ingredients: Vec<Value>,
+    pub(super) scaled_to: Value,
 }
 
 /// **How far the Yield being cooked is from the Yield as written**, or 1.0.

@@ -1098,6 +1098,9 @@ describe('writing down what you actually cooked', () => {
 					},
 					promotion_declined: false,
 					version_id: 'v_2',
+					// Not read here: what the cooking screen scales (#713).
+					readings: [],
+					measured: { ingredients: [], scaled_to: null },
 				},
 			}),
 		});
@@ -1435,6 +1438,200 @@ describe('photographing the cooking (#77)', () => {
 		expect(screen.getByRole('button', { name: /8 servings/ })).toBeInTheDocument();
 		expect(await exactly('a pinch of salt')).toBeInTheDocument();
 		expect(screen.queryByText('kept as written')).toBeNull();
+	});
+
+	/**
+	 * Cook at eight servings and write `2 cups panko` over the recipe's line,
+	 * the Core answering with the As Cooked measured as `measuredFor` says (#713).
+	 */
+	/** The Attempt the Core answers once it holds `2 cups panko` (#713). */
+	function pankoCookedAtEight(measuredFor: { amount: string; noun: string } | null) {
+		// The editor holds the recipe's own amounts, so `2 cups panko` written
+		// at eight servings of a recipe for four is four cups, and the Core says
+		// so on the Attempt it answers the write with.
+		const ingredients = INGREDIENTS.map((line) =>
+			line.text === '1 cup panko' ? { ...line, text: '2 cups panko' } : line,
+		);
+		const recipe = scaledTo('8', 'servings').versions[0].content;
+		return attempt({
+			current_step_index: 1,
+			cooking_yield: { amount: '8', noun: 'servings' },
+			as_cooked: {
+				version_id: 'v_cooked',
+				content: { ...recipe, ingredients },
+				against: { ingredients: [], steps: [] },
+				promotion_declined: false,
+				readings: [
+					null,
+					{ amount: '2', unit: null, target: 'chicken', lineage_id: null },
+					{ amount: '2', unit: 'cups', target: 'panko', lineage_id: null },
+					{ amount: '800', unit: 'ml', target: 'water', lineage_id: null },
+					null,
+				],
+				measured: {
+					ingredients: [null, null, 'about 960 g panko', '1.6 l water', null],
+					scaled_to: measuredFor,
+				},
+			},
+		});
+	}
+
+	async function changePankoAtEight(
+		measuredFor: { amount: string; noun: string } | null,
+		over: Answers = {},
+	) {
+		const kamosu = await cook({
+			start_attempt: attempt({
+				current_step_index: 1,
+				cooking_yield: { amount: '8', noun: 'servings' },
+			}),
+			get_recipe: scaledTo('8', 'servings'),
+			set_as_cooked: pankoCookedAtEight(measuredFor),
+			...over,
+		});
+		await openMore();
+		await fireEvent.click(await screen.findByRole('button', { name: /note a change/i }));
+		await fireEvent.input(
+			await screen.findByDisplayValue(
+				(_, node) => (node as HTMLInputElement)?.value === '1 cup panko',
+			),
+			{ target: { value: '2 cups panko' } },
+		);
+		await fireEvent.click(await screen.findByRole('button', { name: /^done$/i }));
+		return kamosu;
+	}
+
+	it('scales a line the cook changed, as the Core measured it (#713)', async () => {
+		await changePankoAtEight({ amount: '8', noun: 'servings' });
+
+		// The cook's own line scaled stands alone, as every scaled line does
+		// (round 2 of #681's climb), and the recipe's line is struck under it
+		// at the same amount, so the two say the same amount of the same thing
+		// (round 5 of #681's climb).
+		expect(await exactly('about 960 g panko')).toHaveClass('text-panel-figure');
+		expect(screen.queryByText('2 cups panko')).not.toBeInTheDocument();
+		expect(screen.getByText('about 480 g panko')).toHaveClass('line-through');
+		expect(screen.queryByText('1 cup panko')).not.toBeInTheDocument();
+	});
+
+	it('keeps the measured line when a move answers from before the save (#713)', async () => {
+		// `save` and the move go out together, and the move's answer can carry
+		// the As Cooked as it stood before the save landed.
+		const kamosu = await changePankoAtEight(
+			{ amount: '8', noun: 'servings' },
+			{
+				advance_attempt: attempt({
+					current_step_index: 1,
+					cooking_yield: { amount: '8', noun: 'servings' },
+				}),
+			},
+		);
+		expect(await exactly('about 960 g panko')).toBeInTheDocument();
+		await fireEvent.click(screen.getByRole('button', { name: /tick 2 chicken breasts/i }));
+		await vi.waitFor(() =>
+			expect(kamosu.calls.some((call) => call.operation === 'advance_attempt')).toBe(true),
+		);
+		expect(await exactly('about 960 g panko')).toBeInTheDocument();
+	});
+
+	it('takes the cook’s words measured from a later answer after a save held back (#713)', async () => {
+		// A save the outbox held answers with the As Cooked as it was, and the
+		// server's own, with the cook's words, comes on the next move.
+		const kamosu = await changePankoAtEight(null, {
+			set_as_cooked: attempt({
+				current_step_index: 1,
+				cooking_yield: { amount: '8', noun: 'servings' },
+			}),
+			advance_attempt: pankoCookedAtEight({ amount: '8', noun: 'servings' }),
+		});
+		expect(screen.queryByText('about 960 g panko')).not.toBeInTheDocument();
+		await fireEvent.click(screen.getByRole('button', { name: /tick 2 chicken breasts/i }));
+		await vi.waitFor(() =>
+			expect(kamosu.calls.some((call) => call.operation === 'advance_attempt')).toBe(true),
+		);
+		expect(await exactly('about 960 g panko')).toBeInTheDocument();
+	});
+
+	it('says nothing under a changed line measured for another amount (#713)', async () => {
+		// Measured at the recipe as written, while eight servings are cooked:
+		// as after a change of how much made with no network.
+		await changePankoAtEight(null);
+		const line = await exactly('2 cups panko');
+		expect(line).toHaveClass('text-panel-figure');
+		expect(screen.queryByText('about 960 g panko')).not.toBeInTheDocument();
+		// Nor does it claim the line could not be scaled: the Core has not said.
+		const row = line.closest('li') as HTMLElement;
+		expect(within(row).queryByText('kept as written')).not.toBeInTheDocument();
+	});
+
+	it('scales a line the cook added on a Step, as the Core measured it (#713)', async () => {
+		// Cooking eight servings of a recipe for four, the cook added
+		// `1 tsp paprika` after the panko; the Core measured it at eight.
+		const recipe = scaledTo('8', 'servings');
+		const content = recipe.versions[0].content;
+		type Row = NonNullable<StartAttemptOutput['as_cooked']>['against']['ingredients'][number];
+		const same = (mine: number, theirs: number, kind: string, text: string): Row => ({
+			from_branch_point: false,
+			kind,
+			mine: { index: mine, kind, text },
+			place: { mine, theirs },
+			state: 'same',
+			theirs: { index: theirs, kind, text },
+		});
+		await cook({
+			get_recipe: recipe,
+			start_attempt: attempt({
+				current_step_index: 1,
+				cooking_yield: { amount: '8', noun: 'servings' },
+				as_cooked: {
+					against: {
+						ingredients: [
+							same(0, 0, 'section', 'For the cutlets'),
+							same(1, 1, 'ingredient', '2 chicken breasts'),
+							same(2, 2, 'ingredient', '1 cup panko'),
+							{
+								from_branch_point: false,
+								kind: 'ingredient',
+								mine: null,
+								place: { mine: 3, theirs: 3 },
+								state: 'only-theirs',
+								theirs: { index: 3, kind: 'ingredient', text: '1 tsp paprika' },
+							},
+							same(3, 4, 'ingredient', '800 ml water'),
+							same(4, 5, 'ingredient', 'a pinch of salt'),
+						],
+						steps: content.steps.map((step, index) => same(index, index, step.kind, step.text)),
+					},
+					content: {
+						...content,
+						ingredients: [
+							INGREDIENTS[0],
+							INGREDIENTS[1],
+							INGREDIENTS[2],
+							{ kind: 'ingredient', text: '1 tsp paprika' },
+							INGREDIENTS[3],
+							INGREDIENTS[4],
+						],
+					},
+					promotion_declined: false,
+					version_id: 'v_2',
+					readings: [
+						null,
+						{ amount: '2', unit: null, target: 'chicken', lineage_id: null },
+						{ amount: '1', unit: 'cup', target: 'panko', lineage_id: null },
+						{ amount: '1', unit: 'tsp', target: 'paprika', lineage_id: null },
+						{ amount: '800', unit: 'ml', target: 'water', lineage_id: null },
+						null,
+					],
+					measured: {
+						ingredients: [null, null, 'about 480 g panko', '2 tsp paprika', '1.6 l water', null],
+						scaled_to: { amount: '8', noun: 'servings' },
+					},
+				},
+			}),
+		});
+		expect(await exactly('2 tsp paprika')).toBeInTheDocument();
+		expect(screen.queryByText('1 tsp paprika')).not.toBeInTheDocument();
 	});
 
 	it('offers only multipliers where the recipe never said what it makes', async () => {

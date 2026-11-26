@@ -767,6 +767,10 @@ pub fn scaled_line_in(
     if let Some(unit) = unit {
         let gap = rest.len() - rest.trim_start().len();
         if rest[gap..].starts_with(unit) {
+            // The whole word the line writes, where it names the same Unit:
+            // a Reading corrected by hand to `lb` on the line `1/2 lbs` takes
+            // the `s` with it (#712).
+            let unit = whole_unit_word(&rest[gap..], unit, written_in_language);
             unit_said = if figure.converted {
                 figure.unit_word(language)
             } else if figure.source.is_none_or(|source| spells_out(unit, source)) {
@@ -852,6 +856,21 @@ pub fn scaled_line_in(
     };
     let figure_said = figure.about_if_due(figure_said, language);
     Some(format!("{before}{figure_said}{rest}"))
+}
+
+/// The Unit word at the start of `text`, which starts with `unit`: the whole
+/// word where it names the same Unit, `lbs` for a Reading of `lb`, and
+/// `unit` itself otherwise.
+fn whole_unit_word<'a>(text: &'a str, unit: &'a str, language: &str) -> &'a str {
+    let end = text
+        .find(|c: char| !c.is_alphabetic())
+        .unwrap_or(text.len());
+    let word = &text[..end];
+    let lists = words::of(language);
+    match (lists.unit(word), lists.unit(unit)) {
+        (Some(whole), Some(read)) if word.len() > unit.len() && whole.id == read.id => word,
+        _ => unit,
+    }
 }
 
 /// Where `amount` stands in the line as a number of its own: not inside
@@ -1117,7 +1136,8 @@ pub fn readers_own_in_line(
 ) -> Option<Restated> {
     let source = words::of(written_in_language).unit(unit)?;
     let at = amount_at(text, amount, Some(unit))?;
-    let rest = text[at + amount.len()..].trim_start().strip_prefix(unit)?;
+    let after = text[at + amount.len()..].trim_start();
+    let rest = after.strip_prefix(whole_unit_word(after, unit, written_in_language))?;
     restated_after(rest, written_in_language, source, false)
         .filter(|restated| restated.is_readers_own(measures))
 }
@@ -1271,12 +1291,10 @@ fn drawers_tool(
             "tablespoon" | "pound" => 1.0,
             _ => 0.0,
         };
-        let whole = |end: f64| (end.round() - end).abs() < 1e-9;
         // Spoons become cups only on a cup the set has. A cup the recipe
-        // wrote keeps the eighths every cup line is read to.
-        let on_a_mark = |end: f64| {
-            unit.id != "cup" || unit.id == written.id || whole(end * 4.0) || whole(end * 3.0)
-        };
+        // wrote stays a cup at its eighths, and an eighth no cup holds is
+        // said with spoons after it, by `cup_with_spoons` (#712).
+        let on_a_mark = |end: f64| unit.id != "cup" || unit.id == written.id || on_the_cups(end);
         ends(unit)
             .iter()
             .all(|&end| end >= smallest - 1e-9 && on_a_mark(end))
@@ -1339,12 +1357,15 @@ fn figure_in(
     }
     // A scaled spoon that reaches a bigger tool is carried up into it, the
     // rest said with the smaller ones (#705): `10 tbsp` is `½ cup + 2 tbsp`.
+    // A scaled cup that no measuring cup holds is said the same way (#712):
+    // `⅝ cup` is `½ cup + 2 tbsp`.
     let mut smaller = Vec::new();
     let mut carried_inexact = false;
     if scale != 1.0
         && measures == Measures::Us
         && low.is_none()
         && let Some(carried) = carried_up(measured.quantity, measured.unit)
+            .or_else(|| cup_with_spoons(measured.quantity, measured.unit))
     {
         measured = Measured {
             quantity: carried.count,
@@ -1358,7 +1379,8 @@ fn figure_in(
     // of the larger one after it as before.
     let low_measured = low.map(|low| measured.quantity * low / high);
 
-    let converted = measured.unit.map(|u| u.id) != source.map(|u| u.id);
+    // A cup said with spoons after it is worded anew, as a conversion is.
+    let converted = measured.unit.map(|u| u.id) != source.map(|u| u.id) || !smaller.is_empty();
     // Another Unit of the same system is exact arithmetic, `6 tsp` being
     // `2 tbsp`; only another system, or rounding, makes a figure "about".
     let crossed = measured.unit.map(|u| u.system) != source.map(|u| u.system);
@@ -1396,6 +1418,40 @@ fn figure_in(
         smaller,
         whole_ounces,
     })
+}
+
+/// Whether a set of measuring cups measures this many cups: whole cups and
+/// a quarter, a third, a half, two thirds or three quarters.
+fn on_the_cups(cups: f64) -> bool {
+    let whole = |n: f64| (n.round() - n).abs() < 1e-9;
+    whole(cups * 4.0) || whole(cups * 3.0)
+}
+
+/// **A cup amount no measuring cup holds, in cups and spoons** (#712): where
+/// the figure a cup line is read to, its eighths and thirds, lands on no cup
+/// the set has, the amount carried up from tablespoons, so ⅔ cup at 1¼ is
+/// `¾ cup + 1 tbsp + 1 tsp`. Where that needs a fraction of a teaspoon it is
+/// the rounded figure carried instead, so 3.9 cups is `about 3¾ cups + 2
+/// tbsp` and never adds a teaspoon's eighths to a figure already rounded.
+fn cup_with_spoons(quantity: f64, unit: Option<&'static Unit>) -> Option<Carried> {
+    let cup = unit.filter(|unit| unit.id == "cup")?;
+    let rounded = round_line(quantity, Some(cup));
+    if on_the_cups(rounded) {
+        return None;
+    }
+    let tablespoon = unit_by_id("tablespoon");
+    let in_spoons = |cups: f64| carried_up(cups * cup.base / tablespoon.base, Some(tablespoon));
+    let exact = in_spoons(quantity)?;
+    let whole_teaspoons = exact
+        .smaller
+        .iter()
+        .all(|&(count, unit)| unit.id != "teaspoon" || (count.round() - count).abs() < 1e-9);
+    if !exact.inexact && whole_teaspoons {
+        return Some(exact);
+    }
+    let mut carried = in_spoons(rounded)?;
+    carried.inexact = true;
+    Some(carried)
 }
 
 /// **A spoon amount carried up into bigger tools** (#705), as an American
@@ -1878,7 +1934,8 @@ fn step_of(quantity: f64, unit: Option<&'static Unit>) -> f64 {
 /// - a set of spoons goes down to an eighth of a teaspoon, and a set of
 ///   cups holds a third and two thirds;
 /// - a count, or a Unit Kamosu does not know, is cut in quarters, since nobody
-///   cuts ⅜ of a chile;
+///   cuts ⅜ of a chile, and a count in thirds too, whichever is nearer: ⅜ of
+///   a chile is ⅓, not ½ (#712);
 /// - a positive amount is never said as nothing: under half the smallest mark
 ///   it is that mark, and "about" says so.
 fn round_line(quantity: f64, unit: Option<&'static Unit>) -> f64 {
@@ -1887,9 +1944,11 @@ fn round_line(quantity: f64, unit: Option<&'static Unit>) -> f64 {
         return step;
     }
     let rounded = (quantity / step).round() * step;
-    // A set of cups has a third and two thirds beside its eighths.
+    // A set of cups has a third and two thirds beside its eighths, and a
+    // knife cuts a thing in three as readily as in four.
     let thirds = (quantity * 3.0).round() / 3.0;
-    if unit.is_some_and(|unit| unit.id == "cup")
+    if unit.is_none_or(|unit| unit.id == "cup")
+        && thirds > 0.0
         && (thirds - quantity).abs() < (rounded - quantity).abs()
     {
         return thirds;
@@ -3540,8 +3599,8 @@ mod tests {
         );
         assert_eq!(
             us("5 3/4 c flour", "5 3/4", "c", "flour", 0.5),
-            Some("2⅞ c flour".into()),
-            "a cup the recipe wrote keeps its eighths"
+            Some("2¾ cups + 2 tbsp flour".into()),
+            "a cup the recipe wrote stays a cup, and its eighth no cup holds is spoons (#712)"
         );
         assert_eq!(
             us("3-4 tbsp chilli oil", "3-4", "tbsp", "chilli oil", 2.0),
@@ -3922,9 +3981,9 @@ mod tests {
     }
 
     /// A count is cut in quarters, not eighths: nobody cuts ⅜ of a chile
-    /// (#698).
+    /// (#698), or in thirds where a third is nearer (#712).
     #[test]
-    fn a_scaled_count_is_said_in_quarters() {
+    fn a_scaled_count_is_said_in_quarters_or_thirds() {
         let count = |text: &str, target, scale| {
             scaled_line_in(
                 text,
@@ -3940,16 +3999,157 @@ mod tests {
         };
         assert_eq!(
             count("1 red chile", "red chile", 0.375),
-            Some("about ½ red chile".into())
+            Some("about ⅓ red chile".into()),
+            "⅜ is nearer a third than a half"
         );
         assert_eq!(
             count("1 red chile", "red chile", 0.25),
             Some("¼ red chile".into())
         );
+        assert_eq!(
+            count("1 red chile", "red chile", 1.0 / 3.0),
+            Some("⅓ red chile".into()),
+            "a third is exact"
+        );
         // The Sample Library's own count line.
         assert_eq!(
             count("1 chili pepper", "chili pepper", 0.375),
-            Some("about ½ chili pepper".into())
+            Some("about ⅓ chili pepper".into())
+        );
+        // A tomato soup for 4, at 5 and at 6 servings (#712).
+        let quarter = |scale| {
+            scaled_line_in(
+                "1/4 red chile",
+                "en",
+                Some("1/4"),
+                None,
+                Some("red chile"),
+                scale,
+                Measures::Us,
+                "en",
+                None,
+            )
+        };
+        assert_eq!(quarter(1.25), Some("about ⅓ red chile".into()));
+        assert_eq!(quarter(1.5), Some("about ⅓ red chile".into()));
+        assert_eq!(quarter(2.0), Some("½ red chile".into()));
+    }
+
+    /// A scaled cup no measuring cup holds is said as cups and spoons, as a
+    /// scaled spoon carried up already is (#712).
+    #[test]
+    fn a_scaled_cup_off_the_measuring_cups_is_said_with_spoons() {
+        let us = |text: &str, amount, target, scale| {
+            scaled_line_in(
+                text,
+                "en",
+                Some(amount),
+                Some("cup"),
+                Some(target),
+                scale,
+                Measures::Us,
+                "en",
+                None,
+            )
+        };
+        // A tomato soup for 4, at 5 servings.
+        assert_eq!(
+            us(
+                "1/2 cup full fat canned coconut milk",
+                "1/2",
+                "full fat canned coconut milk",
+                1.25
+            ),
+            Some("½ cup + 2 tbsp full fat canned coconut milk".into())
+        );
+        assert_eq!(
+            us("2/3 cup vegetable stock", "2/3", "vegetable stock", 1.25),
+            Some("¾ cup + 1 tbsp + 1 tsp vegetable stock".into())
+        );
+        // At 6 servings both land on a cup.
+        assert_eq!(
+            us(
+                "1/2 cup full fat canned coconut milk",
+                "1/2",
+                "full fat canned coconut milk",
+                1.5
+            ),
+            Some("¾ cup full fat canned coconut milk".into())
+        );
+        assert_eq!(
+            us("2/3 cup vegetable stock", "2/3", "vegetable stock", 1.5),
+            Some("1 cup vegetable stock".into())
+        );
+        assert_eq!(
+            us("1/4 cup milk", "1/4", "milk", 1.5),
+            Some("¼ cup + 2 tbsp milk".into()),
+            "⅜ cup"
+        );
+        assert_eq!(
+            us("1 1/4 cups milk", "1 1/4", "milk", 1.3),
+            Some("1½ cups + 2 tbsp milk".into()),
+            "1⅝ cups"
+        );
+        assert_eq!(
+            us("1 cup milk", "1", "milk", 0.3),
+            Some("about ⅓ cup milk".into()),
+            "a figure that rounds onto a cup stays a cup"
+        );
+        assert_eq!(
+            us("3 cups stock", "3", "stock", 1.3),
+            Some("about 3¾ cups + 2 tbsp stock".into()),
+            "3.9 cups needs no teaspoon's eighths on a figure already rounded"
+        );
+    }
+
+    /// A Unit corrected by hand to `lb`, on a line that writes `lbs`, is the
+    /// whole word `lbs` the line writes (#712): no `s` is left behind.
+    #[test]
+    fn a_unit_read_shorter_than_the_line_writes_it_is_the_whole_word() {
+        let us = |text: &str, amount, unit, target, scale| {
+            scaled_line_in(
+                text,
+                "en",
+                Some(amount),
+                Some(unit),
+                Some(target),
+                scale,
+                Measures::Us,
+                "en",
+                None,
+            )
+        };
+        assert_eq!(
+            us(
+                "1/2 lbs ground pork or beef",
+                "1/2",
+                "lb",
+                "ground pork or beef",
+                2.0
+            ),
+            Some("1 lb ground pork or beef".into())
+        );
+        assert_eq!(
+            us(
+                "1/2 lbs ground pork or beef",
+                "1/2",
+                "lb",
+                "ground pork or beef",
+                4.0
+            ),
+            Some("2 lbs ground pork or beef".into())
+        );
+        // And where the line restates it in the reader's own measure.
+        assert_eq!(
+            readers_own_in_line(
+                "1/2 lbs (225 g) ground pork",
+                "en",
+                "1/2",
+                "lb",
+                Measures::Metric
+            )
+            .map(|restated| (restated.amount, restated.unit)),
+            Some(("225".into(), "g".into()))
         );
     }
 
