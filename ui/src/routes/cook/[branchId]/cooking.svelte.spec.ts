@@ -362,6 +362,34 @@ describe('the cooking screen', () => {
 		expect(await exactly('2 chicken breasts')).toHaveClass('text-panel-figure');
 	});
 
+	it('first tries one column at the middle size (round 4 of #681)', async () => {
+		// The body runs past its box only while a figure is at its full size.
+		const body = (element: HTMLElement) => element.classList.contains('overflow-y-auto');
+		Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
+			configurable: true,
+			get(this: HTMLElement) {
+				if (!body(this)) return 0;
+				return this.querySelector('.text-panel-figure') ? 1000 : 400;
+			},
+		});
+		Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
+			configurable: true,
+			get(this: HTMLElement) {
+				return body(this) ? 500 : 0;
+			},
+		});
+		try {
+			await cook({ get_recipe: busy() });
+			await vi.waitFor(async () =>
+				expect(await exactly('2 chicken breasts')).toHaveClass('text-panel-figure-mid'),
+			);
+			expect(await busyList()).not.toHaveClass('columns-2');
+		} finally {
+			Reflect.deleteProperty(HTMLElement.prototype, 'scrollHeight');
+			Reflect.deleteProperty(HTMLElement.prototype, 'clientHeight');
+		}
+	});
+
 	it('puts them in two columns once one runs the Step past the foot (#681)', async () => {
 		// Chosen by count, two columns squeezed four lines into small type above
 		// a short Step (round 1 of #681's climb). Here the body is told it runs
@@ -807,6 +835,45 @@ describe('the cooking screen on a tablet on the counter (#197)', () => {
 			// Still shown, under the Step, as on a tablet upright.
 			expect(within(comingNext()!).getByText('Next · 3/3')).toBeInTheDocument();
 		} finally {
+			Reflect.deleteProperty(HTMLElement.prototype, 'scrollHeight');
+			Reflect.deleteProperty(HTMLElement.prototype, 'clientHeight');
+		}
+	});
+
+	it('sends the next Step away rather than shrink the amounts for it (round 4 of #681)', async () => {
+		// The body runs past its foot, but the Step's own words end above it:
+		// only the next Step's words under them are past, so they go, and the
+		// amounts keep their size. Held to three lines, they ran past the foot
+		// and left their heading over nothing.
+		const body = (element: HTMLElement) => element.classList.contains('overflow-y-auto');
+		Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
+			configurable: true,
+			get(this: HTMLElement) {
+				return body(this) ? 1000 : 0;
+			},
+		});
+		Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
+			configurable: true,
+			get(this: HTMLElement) {
+				return body(this) ? 500 : 0;
+			},
+		});
+		const laidOut = HTMLElement.prototype.getBoundingClientRect;
+		const box = (top: number, bottom: number) =>
+			({ top, bottom, height: bottom - top, left: 0, right: 0, width: 0, x: 0, y: top }) as DOMRect;
+		HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+			if (body(this)) return box(0, 500);
+			if (this.classList.contains('text-step')) return box(100, 400);
+			if (this.closest('aside')) return box(530, 610);
+			return laidOut.call(this);
+		};
+		try {
+			await cook({}, { room: 'wide' });
+			expect(await exactly('Coat the chicken in panko.')).toBeInTheDocument();
+			await vi.waitFor(() => expect(comingNext()).not.toBeInTheDocument());
+			expect(await exactly('2 chicken breasts')).toHaveClass('text-panel-figure');
+		} finally {
+			HTMLElement.prototype.getBoundingClientRect = laidOut;
 			Reflect.deleteProperty(HTMLElement.prototype, 'scrollHeight');
 			Reflect.deleteProperty(HTMLElement.prototype, 'clientHeight');
 		}
@@ -1744,13 +1811,14 @@ describe('a Step’s photograph while cooking', () => {
 		};
 	};
 
-	it('sits beside the Step and opens across the screen', async () => {
+	it('stands beside the step count with its word, and opens across the screen', async () => {
 		await cook({ get_recipe: withPhoto() });
-		const open = await screen.findByRole('button', { name: 'Show the photograph of step 1' });
+		const open = await screen.findByRole('button', { name: 'Photo' });
 		expect(open.querySelector('img')).toHaveAttribute('src', '/api/photographs/p_coated/card');
-		// Inside the Step's own box, so the words wrap around it rather than
-		// giving it their room.
-		expect(open.closest('.text-step')).toHaveTextContent('Coat the chicken in panko.');
+		// On the row that says which Step this is, out of the Step's words,
+		// which keep their whole width (round 4 of #681's climb).
+		expect(open.closest('.text-step')).toBeNull();
+		expect(open.parentElement).toHaveTextContent(/Step 1 of \d/);
 
 		await fireEvent.click(open);
 		const large = await screen.findByRole('dialog', { name: 'A photograph of step 1' });
@@ -1765,7 +1833,7 @@ describe('a Step’s photograph while cooking', () => {
 	it('draws nothing on a Step the recipe gives no photograph', async () => {
 		await cook();
 		expect(await exactly('Coat the chicken in panko.')).toBeInTheDocument();
-		expect(screen.queryByRole('button', { name: /Show the photograph of step/ })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Photo' })).toBeNull();
 	});
 });
 

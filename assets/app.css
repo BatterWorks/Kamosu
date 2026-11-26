@@ -53,6 +53,7 @@
     --text-tile-title: calc(15 * var(--type-unit));
     --text-tile-title--line-height: 1.22;
     --text-panel-figure: calc(21 * var(--type-unit));
+    --text-panel-figure-mid: calc(19 * var(--type-unit));
     --text-body: calc(16 * var(--type-unit));
     --text-body--line-height: 1.55;
     --text-read: calc(12.5 * var(--type-unit));
@@ -82,12 +83,12 @@
     --rule-w: 1px;
     --noren-h: 3px;
     --photo-thumb: 72px;
-    --step-photo: 96px;
     --row-picture: 56px;
     --text-step-far: calc(38 * var(--type-unit));
     --text-step-far--line-height: 1.22;
     --text-step-reading-far: calc(22 * var(--type-unit));
     --text-panel-figure-far: calc(27 * var(--type-unit));
+    --text-panel-figure-mid-far: calc(24 * var(--type-unit));
     --leading-figure-far: 1.25;
     --text-body-far: calc(20 * var(--type-unit));
     --text-line-far: calc(22 * var(--type-unit));
@@ -539,9 +540,6 @@
   .bottom-\[6px\] {
     bottom: 6px;
   }
-  .bottom-full {
-    bottom: 100%;
-  }
   .beside-rail {
     padding-left: var(--spacing-rail);
     & .fixed.inset-x-0 {
@@ -598,9 +596,6 @@
   }
   .row-start-1 {
     grid-row-start: 1;
-  }
-  .float-right {
-    float: right;
   }
   .open-card {
     width: calc(100% - 2 * var(--spacing-4));
@@ -729,9 +724,6 @@
   }
   .ml-1 {
     margin-left: var(--spacing-1);
-  }
-  .ml-3 {
-    margin-left: var(--spacing-3);
   }
   .ml-auto {
     margin-left: auto;
@@ -1190,9 +1182,6 @@
   .h-\[var\(--row-picture\)\] {
     height: var(--row-picture);
   }
-  .h-\[var\(--step-photo\)\] {
-    height: var(--step-photo);
-  }
   .h-dvh {
     height: 100dvh;
   }
@@ -1383,9 +1372,6 @@
   }
   .w-\[var\(--row-picture\)\] {
     width: var(--row-picture);
-  }
-  .w-\[var\(--step-photo\)\] {
-    width: var(--step-photo);
   }
   .w-fit {
     width: fit-content;
@@ -1981,6 +1967,9 @@
   .py-px {
     padding-block: 1px;
   }
+  .ps-1 {
+    padding-inline-start: var(--spacing-1);
+  }
   .ps-\[36px\] {
     padding-inline-start: 36px;
   }
@@ -2182,6 +2171,9 @@
   .text-panel-figure {
     font-size: var(--text-panel-figure);
   }
+  .text-panel-figure-mid {
+    font-size: var(--text-panel-figure-mid);
+  }
   .text-read {
     font-size: var(--text-read);
   }
@@ -2197,9 +2189,17 @@
     --tw-leading: 1.6;
     line-height: 1.6;
   }
+  .leading-\[1\.18\] {
+    --tw-leading: 1.18;
+    line-height: 1.18;
+  }
   .leading-\[1\.35\] {
     --tw-leading: 1.35;
     line-height: 1.35;
+  }
+  .leading-\[calc\(22\*var\(--type-unit\)\)\] {
+    --tw-leading: calc(22 * var(--type-unit));
+    line-height: calc(22 * var(--type-unit));
   }
   .leading-\[calc\(24\*var\(--type-unit\)\)\] {
     --tw-leading: calc(24 * var(--type-unit));
@@ -2364,6 +2364,7 @@
       --text-step--line-height: var(--text-step-far--line-height);
       --text-step-reading: var(--text-step-reading-far);
       --text-panel-figure: var(--text-panel-figure-far);
+      --text-panel-figure-mid: var(--text-panel-figure-mid-far);
       --text-body: var(--text-body-far);
       --text-line: var(--text-line-far);
       --text-read: var(--text-read-far);
@@ -2463,6 +2464,9 @@
     }
     .wide\:h-\[30px\] {
       height: 30px;
+    }
+    .wide\:min-h-\[64px\] {
+      min-height: 64px;
     }
     .wide\:min-h-\[var\(--cook-foot-far\)\] {
       min-height: var(--cook-foot-far);
@@ -2572,14 +2576,8 @@
     .wide\:pr-gutter {
       padding-right: var(--spacing-gutter);
     }
-    .wide\:pb-1 {
-      padding-bottom: var(--spacing-1);
-    }
     .wide\:pb-3 {
       padding-bottom: var(--spacing-3);
-    }
-    .wide\:pb-4 {
-      padding-bottom: var(--spacing-4);
     }
     .wide\:pl-0 {
       padding-left: var(--spacing-0);
@@ -2594,8 +2592,8 @@
     .wide\:text-letter-wide {
       font-size: var(--text-letter-wide);
     }
-    .wide\:text-panel-figure {
-      font-size: var(--text-panel-figure);
+    .wide\:text-panel-figure-mid {
+      font-size: var(--text-panel-figure-mid);
     }
     .wide\:leading-\[1\.4\] {
       --tw-leading: 1.4;
@@ -2651,26 +2649,17 @@
     .sideways\:pt-0 {
       padding-top: var(--spacing-0);
     }
-    .sideways\:pt-1 {
-      padding-top: var(--spacing-1);
-    }
     .sideways\:pt-2 {
       padding-top: var(--spacing-2);
-    }
-    .sideways\:pb-1 {
-      padding-bottom: var(--spacing-1);
     }
     .sideways\:pb-2 {
       padding-bottom: var(--spacing-2);
     }
-    .sideways\:pb-\[6px\] {
-      padding-bottom: 6px;
-    }
     .sideways\:pl-\[20px\] {
       padding-left: 20px;
     }
-    .sideways\:text-panel-figure {
-      font-size: var(--text-panel-figure);
+    .sideways\:text-panel-figure-mid {
+      font-size: var(--text-panel-figure-mid);
     }
   }
   @media (min-width: 700px) and (min-height: 560px) {

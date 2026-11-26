@@ -151,6 +151,7 @@
   "cook_see_diary": "Abrir el diario",
   "cook_start_cooking": "Empezar a cocinar",
   "cook_step_of": "Paso {n} de {total}",
+  "cook_step_photo": "Foto",
   "cook_thrown_away": "Descartada. No se ha registrado nada.",
   "cook_tick": "Marcar {line}",
   "cook_tick_each": "Marca cada uno cuando lo añadas",

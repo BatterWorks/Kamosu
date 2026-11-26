@@ -255,8 +255,31 @@
 	 * cannot chase itself.
 	 */
 	let nextBelow = $state(false);
-	/** This Step's amounts did not leave it room in one column. */
-	let crowded = $state(false);
+	/**
+	 * How far this Step's amounts have given way to leave it room, one rung a
+	 * measure while it runs past the foot (round 4 of #681's climb). Two
+	 * columns at once, all or nothing, set touching, wrapping lines in small
+	 * type where one column at a smaller size would have fitted: the Dan Dan's
+	 * last step missed by 3px.
+	 *
+	 * 0. One column, the figures at their size.
+	 * 1. One column, the figures at the middle size.
+	 * 2. And the line saying what the boxes are for gone, where it shows.
+	 * 3. Two columns at the ingredient line's size, from three lines.
+	 * 4. And the converted line beneath at a reading's size.
+	 * 5. And the Step's lines and the hairline above it closer, at the Step's
+	 *    own size, which ADR 0011 keeps the largest type in the app: the
+	 *    soup's second step as written still ran 17px past on rung 4.
+	 */
+	let fit = $state(0);
+
+	/** The next rung, skipping one that would change nothing on this Step. */
+	function nextFit(level: number): number {
+		let next = level + 1;
+		if (next === 2 && position !== firstWithAmounts) next = 3;
+		if (next === 3 && amounts.length < 3) next = 4;
+		return next;
+	}
 
 	function measureBody() {
 		const element = bodyEl;
@@ -267,13 +290,30 @@
 			? element.scrollHeight - element.scrollTop - element.clientHeight > 8
 			: false;
 		moreBelow = over;
+		// A phone on its side scrolls the amounts and the Step apart, inside a
+		// body that never runs past, so nothing gives way there.
+		if (!element || !over) return;
+		// The Step's own words past the foot, which the amounts give way for,
+		// or only the next Step's under them, which takes fewer lines: the
+		// amounts went to their last rung for a preview (round 4 of #681's
+		// climb). Words with no size were not laid out, and count as past.
+		const foot = element.getBoundingClientRect().bottom;
+		const words = stepWordsEl?.getBoundingClientRect();
+		const stepPast = !words || words.height === 0 || words.bottom - foot > 8;
 		// One change a measure, each kept for the rest of the Step, so the
-		// layout settles in at most two moves and never chases itself.
-		if (over)
-			untrack(() => {
+		// layout settles in a few moves and never chases itself.
+		untrack(() => {
+			if (stepPast) {
 				if (room.roomy && nextBeside) nextBelow = true;
-				else if (!crowded && !writing && amounts.length >= 3) crowded = true;
-			});
+				else if (fit < 5 && !writing && amounts.length > 0) fit = nextFit(fit);
+			} else if (nextShown && !nextAside) {
+				const words = nextEl?.querySelector('p');
+				const line = words ? parseFloat(getComputedStyle(words).lineHeight) : 0;
+				const fits =
+					words && line > 0 ? Math.floor((foot - words.getBoundingClientRect().top) / line) : 0;
+				nextUnderLines = Math.max(0, Math.min(nextUnderLines - 1, fits));
+			}
+		});
 	}
 
 	/**
@@ -362,6 +402,15 @@
 	 */
 	let nextEl = $state<HTMLElement | undefined>(undefined);
 	let nextLines = $state(3);
+	/**
+	 * How many lines of the next Step the foot leaves it under this one, none
+	 * sending it away, fewer only ever within a Step. Held to three, it ran past
+	 * the foot under a long Step and showed its heading over nothing (round 4
+	 * of #681's climb).
+	 */
+	let nextUnderLines = $state(3);
+	/** The Step's own words, which the amounts give way for. */
+	let stepWordsEl = $state<HTMLElement | undefined>(undefined);
 
 	/**
 	 * *Got it*. The card closes with the mistake rather than staying open for
@@ -451,9 +500,10 @@
 		void amounts.length;
 		void writeFailed;
 		// The next Step moving under this one, which gives the Step its width,
-		// and the amounts going to two columns.
+		// and the amounts giving way a rung.
 		void nextBelow;
-		void crowded;
+		void fit;
+		void nextUnderLines;
 		// A Demo's strip, which takes the foot of the screen once the shell
 		// has heard it is one (#407).
 		void demo.is;
@@ -484,7 +534,8 @@
 		untrack(() => {
 			for (const box of [bodyEl, amountsEl, stepBoxEl]) if (box) box.scrollTop = 0;
 			nextBelow = false;
-			crowded = false;
+			fit = 0;
+			nextUnderLines = 3;
 			measureBody();
 		});
 	});
@@ -623,6 +674,10 @@
 	const comingNext = $derived(room.wide && !writing ? stops[position + 1] : undefined);
 	/** It stands beside the Step, where the window is roomy and the Step leaves it room. */
 	const nextBeside = $derived(comingNext !== undefined && !nextBelow);
+	/** Beside the Step now: `nextBeside` draws it there only where the window is roomy. */
+	const nextAside = $derived(room.roomy && nextBeside);
+	/** Shown, beside the Step or under it with a line or more of room. */
+	const nextShown = $derived(comingNext !== undefined && (nextAside || nextUnderLines > 0));
 
 	/** The Section this step falls under, where the recipe has any. */
 	const section = $derived.by(() => {
@@ -796,18 +851,31 @@
 	 * column does not leave it: chosen by four lines or more, they squeezed the
 	 * bourguignon's four into half columns of small type above a short Step and
 	 * 400px of nothing (round 1 of #681's climb). So the Step is drawn in one
-	 * column first, and goes to two once it is found running past the foot.
-	 * Three lines is the least that two columns can shorten.
+	 * column first, then in one at the middle size, and goes to two once that
+	 * too is found running past the foot (`fit`). Three lines is the least that
+	 * two columns can shorten.
 	 *
 	 * In two columns the lines are 24px apart, not the line size's 23.8: rows
 	 * that touch at a fraction of a pixel claimed the same pixel row twice,
 	 * and measured as taps overlapping (round 3 of #681's climb).
 	 */
-	const columns = $derived(crowded && amounts.length >= 3);
+	const columns = $derived(fit >= 3 && amounts.length >= 3);
 	const figure = $derived(
 		columns
-			? 'text-line leading-[calc(24*var(--type-unit))] sideways:text-panel-figure wide:text-panel-figure wide:leading-figure-far'
-			: 'text-panel-figure wide:leading-figure-far',
+			? 'text-line leading-[calc(24*var(--type-unit))] sideways:text-panel-figure-mid wide:text-panel-figure-mid wide:leading-figure-far'
+			: fit >= 1
+				? 'text-panel-figure-mid wide:leading-figure-far'
+				: 'text-panel-figure wide:leading-figure-far',
+	);
+	/**
+	 * The converted line under a figure, at a reading's size on the last rung,
+	 * on whole pixels: at the body's line height it was 23.25px, and the rows
+	 * under it lost a pixel row of their 48px taps.
+	 */
+	const beneathSize = $derived(
+		fit >= 4
+			? 'text-step-reading leading-[calc(22*var(--type-unit))]'
+			: 'text-line leading-[calc(24*var(--type-unit))] wide:text-step-reading wide:leading-[1.4]',
 	);
 
 	/**
@@ -1355,6 +1423,38 @@
 				</button>
 			{/if}
 			<!--
+				HOW MUCH is being cooked, where the cook chose it: every figure
+				below was scaled to this number, and it is also what asks again
+				(#109). On the recipe's row, since it says how much of the recipe:
+				on a row of its own above the Step it took a phone's row on every
+				Step without a timer (round 4 of #681's climb). Away from the
+				timer, so a thumb aiming at one cannot catch the other.
+			-->
+			{#if choseAmount && !writing && !asking}
+				<button
+					type="button"
+					class="quiet-button shrink-0"
+					aria-label={m.cook_how_much_is({ amount: howMuch })}
+					onclick={() => {
+						atStart = false;
+						asking = true;
+						more = false;
+					}}
+				>
+					<svg
+						viewBox="0 0 24 24"
+						aria-hidden="true"
+						class="h-[18px] w-[18px] shrink-0"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="1.8"
+						stroke-linecap="round"
+						stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4" /></svg
+					>
+					{howMuch}
+				</button>
+			{/if}
+			<!--
 				MORE, the rarely needed controls (#222, #681): a photograph of the
 				cooking, noting a change, the screen's sleep and the false start, a row
 				each. A ⋯ with no word was found unlabelled by the audit (U8), so it
@@ -1525,10 +1625,20 @@
 				its end since #651, where it was `1/5` on the row above: the audit
 				read the number as a fraction (C2). Neither shows while how much is
 				asked, which is no step.
+
+				THE STEP'S PHOTOGRAPH, where the recipe gives it one (#110), at the
+				row's end: a small copy of it and the word, in the room's light, so
+				a cook sees from the counter that this Step has one, and a tap shows
+				it across the screen. By where the Step CAME FROM, like everything
+				else read off the Version: a step the cook wrote has no photograph,
+				and a rewritten one keeps the recipe's. It stood in the Step's words
+				until round 4 of #681's climb, narrowing their first lines, a small
+				picture with no word. The row is as tall on every Step as with it,
+				so the Step does not move from one to the next, and holds the
+				button's whole 50px tap, which reached into More's when it stood
+				nearer the row's top.
 			-->
-			<div
-				class="flex shrink-0 items-center gap-3 pt-2 pb-3 wide:pb-4 sideways:pt-1 sideways:pb-[6px]"
-			>
+			<div class="flex min-h-[52px] shrink-0 items-center gap-3 wide:min-h-[64px]">
 				<div class="flex flex-1 gap-1" aria-hidden="true">
 					{#each stops as stop, index (stop.index)}
 						<!--
@@ -1551,11 +1661,22 @@
 				<span class="shrink-0 text-step-reading text-cook-ink">
 					{m.cook_step_of({ n: position + 1, total: stops.length })}
 				</span>
+				{#if stepPhoto}
+					<StepPhoto
+						photograph={stepPhoto}
+						number={position + 1}
+						word={m.cook_step_photo()}
+						shapeClass="quiet-button border-cook-accent ps-1 font-semibold text-cook-accent"
+						thumbClass="h-8 w-8"
+					/>
+				{/if}
 			</div>
 		{/if}
 
 		{#if section && !asking}
-			<p class="shrink-0 pb-2 font-display text-body font-semibold text-cook-accent">{section}</p>
+			<!-- At the ingredient line's size: at the body's 16px it was the smallest
+			     words on the screen (round 3 of #681's climb). -->
+			<p class="shrink-0 pb-2 font-display text-line font-semibold text-cook-accent">{section}</p>
 		{/if}
 
 		{#if asking}
@@ -1586,9 +1707,9 @@
 		{:else}
 			<!--
 				THE ROW ABOVE THE BODY, and only when it has something on it (#681).
-				It holds what a cook watches or set themselves: the timer, the amount
-				they chose where it is not the recipe's own, and Done while they
-				write. Photo and Note a change went under More, which they are rarely
+				It holds what a cook watches, the timer, and Done while they write.
+				The amount they chose went to the recipe's row (round 4 of #681's
+				climb). Photo and Note a change went under More, which they are rarely
 				reached for at the stove (U5), and the row no longer wraps to two
 				lines between the amounts and the Step.
 
@@ -1599,7 +1720,7 @@
 				the same small chip was the one sign across a kitchen (round 2 of
 				#681's climb).
 			-->
-			{#if writing || countdown.remaining !== null || (duration !== null && offer) || choseAmount}
+			{#if writing || countdown.remaining !== null || (duration !== null && offer)}
 				<div class="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 pb-3 sideways:pb-2">
 					<!--
 						The timer. One tap, nothing typed, nothing stored — and it is the
@@ -1647,38 +1768,6 @@
 						>
 							{@render clockIcon()}
 							{m.cook_timer_offer({ duration: offer })}
-						</button>
-					{/if}
-					<!--
-						HOW MUCH is being cooked, where the cook chose it: every figure
-						below was scaled to this number, and it is also what asks again
-						(#109).
-					-->
-					{#if choseAmount && !writing}
-						<!-- At the far end, where a thumb aiming at the timer cannot catch it,
-						     and where it stands whether a Step has a timer or not (round 1 of
-						     #681's climb). -->
-						<button
-							type="button"
-							class="quiet-button ms-auto shrink-0"
-							aria-label={m.cook_how_much_is({ amount: howMuch })}
-							onclick={() => {
-								atStart = false;
-								asking = true;
-								more = false;
-							}}
-						>
-							<svg
-								viewBox="0 0 24 24"
-								aria-hidden="true"
-								class="h-[18px] w-[18px] shrink-0"
-								fill="none"
-								stroke="currentColor"
-								stroke-width="1.8"
-								stroke-linecap="round"
-								stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4" /></svg
-							>
-							{howMuch}
 						</button>
 					{/if}
 					{#if writing}
@@ -1902,7 +1991,7 @@
 									(#681). A step that uses no line shows no panel at all: the
 									Step is the whole of it.
 								-->
-								{#if position === firstWithAmounts}
+								{#if position === firstWithAmounts && fit < 2}
 									<p class="pb-[6px] text-step-reading text-cook-soft">{m.cook_tick_each()}</p>
 								{/if}
 								<!--
@@ -1923,11 +2012,12 @@
 									a long line opposite a short one leaves no hole beside the short
 									one: rows sized to the longer of each pair left the eye a ragged
 									grid and took the height of the longest line twice (round 1 of
-									#681's climb). On a tablet the lines keep the small gap the
-									single column has: lines that touched there gave their 48px taps
-									away to each other by a fraction of a pixel, which measured 45.
-									The phone's lines touch and measure 48, and the phone has no
-									pixels to spare.
+									#681's climb). The lines keep the small gap the single column
+									has: lines that touched gave their 48px taps away to each other,
+									on a tablet by a fraction of a pixel, which measured 45, and on
+									a phone by the pixel Chrome finds a line a column holds above
+									where it draws it (round 4), and both graders asked for room
+									between them.
 								-->
 								<ul
 									class={columns
@@ -1935,11 +2025,7 @@
 										: 'flex flex-col gap-1 roomy:grid roomy:grid-cols-2 roomy:gap-x-8'}
 								>
 									{#each amounts as amount (amount.at)}
-										<li
-											class={columns
-												? 'break-inside-avoid wide:pb-1 sideways:pb-1'
-												: 'only:col-span-2'}
-										>
+										<li class={columns ? 'break-inside-avoid pb-1' : 'only:col-span-2'}>
 											{#if amount.row.from === null}
 												<!-- A line the cook wrote: no box, since it has no place in
 												     the recipe for a tick to keep, and the bar a changed
@@ -2014,8 +2100,7 @@
 																     measure by: at the ingredient line's size, where 15px
 																     muted was the hardest thing on the screen to read
 																     (round 2 of #681's climb). -->
-																<span
-																	class="block text-line leading-[calc(24*var(--type-unit))] text-cook-soft wide:text-step-reading wide:leading-[1.4]"
+																<span class="block text-cook-soft {beneathSize}"
 																	>{amount.beneath}</span
 																>
 															{/if}
@@ -2048,7 +2133,9 @@
 						<div
 							bind:this={stepBoxEl}
 							class="flex flex-1 flex-col items-start sideways:mt-0 sideways:min-h-0 sideways:overflow-y-auto sideways:border-t-0 sideways:border-l sideways:border-cook-rule sideways:pt-0 sideways:pl-[20px]
-								{amounts.length > 0 || writing ? 'mt-3 border-t border-cook-rule pt-3 wide:mt-4 wide:pt-6' : ''}
+								{amounts.length > 0 || writing
+								? `border-t border-cook-rule wide:mt-4 wide:pt-6 ${fit >= 5 ? 'mt-2 pt-2' : 'mt-3 pt-3'}`
+								: ''}
 								{nextBeside ? 'roomy:flex-row roomy:items-stretch roomy:gap-8' : ''}"
 						>
 							{#if writing}
@@ -2094,30 +2181,22 @@
 									draw one (ADR 0014). The recipe's words are one tap away inside
 									writing mode.
 
-									The Step's photograph, where the recipe gives it one (#110): a
-									small square at the top right that the words wrap around, and a
-									tap shows it across the screen. By where the step CAME FROM, like
-									everything else read off the Version: a step the cook wrote has
-									no photograph, and a rewritten one keeps the recipe's.
+									The Step's photograph is on the row above, beside the step
+									count, so the words have their whole width.
 								-->
 								<div
-									class="w-full {nextBeside
-										? 'mb-4 roomy:mb-0 roomy:min-w-0 roomy:flex-1'
-										: comingNext
-											? 'mb-4'
-											: ''}"
+									class="w-full {!nextShown
+										? ''
+										: nextBeside
+											? 'mb-4 roomy:mb-0 roomy:min-w-0 roomy:flex-1'
+											: 'mb-4'}"
 								>
 									<div
+										bind:this={stepWordsEl}
 										class="font-display text-step font-semibold
+											{fit >= 5 ? 'leading-[1.18]' : ''}
 											{wroteStep(here.row) ? 'border-l-[3px] border-cook-accent pl-3' : ''}"
 									>
-										{#if stepPhoto}
-											<StepPhoto
-												photograph={stepPhoto}
-												number={position + 1}
-												shapeClass="float-right mt-1 mb-2 ml-3 h-[var(--step-photo)] w-[var(--step-photo)]"
-											/>
-										{/if}
 										<StepWords
 											text={here.row.text}
 											conversions={stepConversions}
@@ -2141,7 +2220,7 @@
 								lines as its column is tall, unless beside it the Step would run
 								past the foot: then under it, as upright.
 							-->
-							{#if comingNext}
+							{#if comingNext && nextShown}
 								<aside
 									bind:this={nextEl}
 									aria-labelledby={nextId}
@@ -2155,7 +2234,7 @@
 									</h2>
 									<p
 										class="line-clamp-3 font-display text-next-step"
-										style:-webkit-line-clamp={nextLines}
+										style:-webkit-line-clamp={nextAside ? nextLines : nextUnderLines}
 									>
 										{comingNext.row.text}
 									</p>

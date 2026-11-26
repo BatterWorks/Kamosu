@@ -151,6 +151,7 @@
   "cook_see_diary": "Ouvrir le journal",
   "cook_start_cooking": "Commencer à cuisiner",
   "cook_step_of": "Étape {n} sur {total}",
+  "cook_step_photo": "Photo",
   "cook_thrown_away": "Jetée. Rien n’a été enregistré.",
   "cook_tick": "Cocher {line}",
   "cook_tick_each": "Cochez chacun quand il est ajouté",

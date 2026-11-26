@@ -10,6 +10,12 @@
 
 	The picture is the Step's, never the cooking's: it is part of the recipe,
 	which is why it is drawn from `/api/photographs` directly, as the hero is.
+
+	At the stove it is a button with a word beside a small copy of the picture,
+	on the row that says which Step this is (round 4 of #681's climb, by
+	Aurélien's decision of 26 November 2026, which reopened K3). The square in
+	the Step's words narrowed its first lines, and both graders found a small
+	picture with no word a poor clue that it opens.
 -->
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
@@ -21,25 +27,40 @@
 		number: number;
 		/** Size and place of the square, which the two screens set differently. */
 		shapeClass: string;
+		/** A word said beside the picture, which then names the button. */
+		word?: string;
+		/** The picture's size beside its word. */
+		thumbClass?: string;
 	}
 
-	let { photograph, number, shapeClass }: Props = $props();
+	let { photograph, number, shapeClass, word, thumbClass = '' }: Props = $props();
 
 	let open = $state(false);
 </script>
 
-<button
-	type="button"
-	class="brightens shrink-0 {shapeClass}"
-	aria-label={m.step_photo_open({ number })}
-	onclick={() => (open = true)}
->
-	<img
-		src="/api/photographs/{photograph}/card"
-		alt=""
-		class="block h-full w-full rounded-sm object-cover"
-	/>
-</button>
+{#if word}
+	<button type="button" class="shrink-0 {shapeClass}" onclick={() => (open = true)}>
+		<img
+			src="/api/photographs/{photograph}/card"
+			alt=""
+			class="block shrink-0 rounded-sm object-cover {thumbClass}"
+		/>
+		{word}
+	</button>
+{:else}
+	<button
+		type="button"
+		class="brightens shrink-0 {shapeClass}"
+		aria-label={m.step_photo_open({ number })}
+		onclick={() => (open = true)}
+	>
+		<img
+			src="/api/photographs/{photograph}/card"
+			alt=""
+			class="block h-full w-full rounded-sm object-cover"
+		/>
+	</button>
+{/if}
 
 {#if open}
 	<!--

@@ -307,12 +307,13 @@ mod tests {
             })
             .count();
         assert_eq!(
-            steps, 22,
+            steps, 24,
             "step, title, line, list-title, shelf-heading, tile-title, panel-figure, body, \
              step-reading, read, label; the letters down Recipes' edge, on the phone and wide \
-             (#650): letter, letter-wide; and the cooking screen read from the counter (#197): \
+             (#650): letter, letter-wide; the cooking screen read from the counter (#197): \
              step-far, step-reading-far, panel-figure-far, body-far, line-far, read-far, label-far, \
-             foot-far, next-step"
+             foot-far, next-step; and a busy step's middle figure, on the phone and from the \
+             counter (#681): panel-figure-mid, panel-figure-mid-far"
         );
     }
 }
