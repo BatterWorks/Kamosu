@@ -23971,7 +23971,7 @@ async fn the_pizza_dough_scales_in_the_measures_it_already_gives_an_american() {
     let two = measured("2");
     assert_eq!(
         two["steps"][0],
-        json!([{ "written": "680g (about 5 1/3 cups)", "measured": "2⅞ cups" }])
+        json!([{ "written": "680g (about 5 1/3 cups)", "measured": "2¾ cups + 2 tbsp" }])
     );
     assert_eq!(
         version["measured"]["steps"][0],
@@ -23981,9 +23981,10 @@ async fn the_pizza_dough_scales_in_the_measures_it_already_gives_an_american() {
     assert_eq!(
         two["ingredients"],
         json!([
-            "about ⅞ cup Warm Water, 86F/30C",
+            // No measuring cup holds ⅞ or ⅚ of a cup (#712).
+            "¾ cup + 1 tbsp + 1 tsp Warm Water, 86F/30C",
             "1 tsp Instant Yeast",
-            "2⅞ cups All-purpose flour",
+            "2¾ cups + 2 tbsp All-purpose flour",
         ])
     );
 }
@@ -24075,6 +24076,132 @@ async fn dan_dan_noodles_doubled_carries_its_spoons_up() {
         read["result"]["versions"][0]["yield_nouns"],
         json!(null),
         "a recipe that never said what it makes has no noun to count"
+    );
+}
+
+/// The Sample Library's Dan Dan Noodles, whose pork line's Reading was
+/// corrected by hand to `lb` on a line that writes `lbs`, at twice the recipe
+/// for a cook who reads in US measures (#712): the line the cooking screen
+/// shows says `1 lb`, with no `s` left over from the word written.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_pound_corrected_by_hand_doubles_to_one_pound() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    reads_in(&app, &key, "en", "us");
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "title": "Dan Dan Noodles",
+            "ingredients": [
+                { "kind": "ingredient", "text": "2 tbsp neutral oil" },
+                { "kind": "ingredient", "text": "1/2 lbs ground pork or beef" },
+            ],
+            "steps": [{
+                "kind": "step",
+                "text": "In a pan, heat oil on medium heat and cook mince until the water has evaporated and the fat starts to render and sizzle (6-8 minutes).",
+            }],
+        })
+        .to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap();
+    let (status, set) = app.post_op(
+        "set_reading",
+        Some(&key),
+        &json!({
+            "branch_id": branch_id,
+            "line_index": 1,
+            "amount": "1/2",
+            "unit": "lb",
+            "target": "ground pork or beef",
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{set}");
+    let at = |amount: &str| {
+        let (_, read) = app.post_op(
+            "get_recipe",
+            Some(&key),
+            &json!({
+                "branch_id": branch_id,
+                "wanted_yield": { "amount": amount, "noun": "" },
+            })
+            .to_string(),
+        );
+        read["result"]["versions"][0]["measured"]["ingredients"][1].clone()
+    };
+    assert_eq!(at("2"), json!("1 lb ground pork or beef"));
+    assert_eq!(at("4"), json!("2 lbs ground pork or beef"));
+}
+
+/// A tomato soup written for 4 servings, at 5 and at 6, for a cook who reads
+/// in US measures (#712): a cup no measuring cup holds is said as cups and
+/// spoons, and a quarter chile scaled is the nearest of quarters and thirds.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_scaled_tomato_soup_is_said_in_the_cups_and_counts_a_cook_has() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    reads_in(&app, &key, "en", "us");
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "title": "Tomato soup",
+            "yield": { "amount": "4", "noun": "servings" },
+            "ingredients": [
+                { "kind": "ingredient", "text": "1/2 cup full fat canned coconut milk" },
+                { "kind": "ingredient", "text": "2/3 cup vegetable stock" },
+                { "kind": "ingredient", "text": "1/4 red chile" },
+            ],
+            "steps": [{
+                "kind": "step",
+                "text": "Stir in 1/2 cup full fat canned coconut milk and simmer.",
+            }],
+        })
+        .to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap();
+    let (_, read) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({
+            "branch_id": branch_id,
+            "wanted_yield": { "amount": "5", "noun": "servings" },
+        })
+        .to_string(),
+    );
+    assert_eq!(
+        read["result"]["versions"][0]["measured"]["steps"],
+        json!([[{ "written": "1/2 cup", "measured": "½ cup + 2 tbsp" }]]),
+        "the step says the cup and spoons its line does"
+    );
+    let at = |amount: &str| {
+        let (_, read) = app.post_op(
+            "get_recipe",
+            Some(&key),
+            &json!({
+                "branch_id": branch_id,
+                "wanted_yield": { "amount": amount, "noun": "servings" },
+            })
+            .to_string(),
+        );
+        read["result"]["versions"][0]["measured"]["ingredients"].clone()
+    };
+    assert_eq!(
+        at("5"),
+        json!([
+            "½ cup + 2 tbsp full fat canned coconut milk",
+            "¾ cup + 1 tbsp + 1 tsp vegetable stock",
+            "about ⅓ red chile",
+        ])
+    );
+    assert_eq!(
+        at("6"),
+        json!([
+            "¾ cup full fat canned coconut milk",
+            "1 cup vegetable stock",
+            "about ⅓ red chile",
+        ])
     );
 }
 
