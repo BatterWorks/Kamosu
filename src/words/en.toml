@@ -129,6 +129,18 @@ timer_ranges = [
 timer_more = [
     "more", "additional", "further", "extra", "other",
 ]
+past_wait_opens = [
+    "after", "once", "when",
+]
+past_wait_done = [
+    "has", "have", "had",
+]
+past_wait_of = [
+    "of",
+]
+past_wait_names = [
+    "time", "rest", "rise", "proof", "fermentation", "resting", "rising", "proofing",
+]
 spoken_half = [
     "and a half",
 ]
@@ -176,6 +188,12 @@ step_except = [
 ]
 step_more = [
     "more",
+]
+step_each = [
+    "each", "apiece",
+]
+step_each_time = [
+    "time", "times",
 ]
 
 # --- Reading a paste ---

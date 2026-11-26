@@ -1704,10 +1704,20 @@ pub(super) fn measured_for_version(
                         .as_deref()
                         .and_then(|food| line_named_first(&readings, food))
                         .and_then(|reading| reading.cup_weight);
+                    // Where the Step restates the amount in the reader's own
+                    // system, that is the figure they are given (#698).
+                    let (figure, unit) = match &amount.restated {
+                        Some(restated) if restated.is_readers_own(measures) => {
+                            (&restated.amount, &restated.unit)
+                        }
+                        _ => (&amount.amount, &amount.unit),
+                    };
+                    // One piece's share is as much at any Yield (#698).
+                    let scale = if amount.each { 1.0 } else { scale };
                     let measured = units::measured_line_in(
                         written_in_language,
-                        Some(&amount.amount),
-                        Some(&amount.unit),
+                        Some(figure),
+                        Some(unit),
                         scale,
                         measures,
                         language,
@@ -1913,7 +1923,17 @@ impl Measurable {
                 &reader.language,
                 self.cup_weight,
             ),
-            _ => units::measured_line_in(
+            Some(text) => units::measured_line_of(
+                text,
+                &self.written_in_language,
+                self.amount.as_deref(),
+                self.unit.as_deref(),
+                scale,
+                reader.measures,
+                &reader.language,
+                self.cup_weight,
+            ),
+            None => units::measured_line_in(
                 &self.written_in_language,
                 self.amount.as_deref(),
                 self.unit.as_deref(),

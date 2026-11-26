@@ -1260,6 +1260,12 @@ pub struct StepAmount {
     pub amount: String,
     pub unit: String,
     pub food: Option<String>,
+    /// The same amount said again in brackets in the other system, which
+    /// `start..end` takes in (#698).
+    pub restated: Option<units::Restated>,
+    /// One piece's share, *each weighing about 280g*, which converts and
+    /// never scales (#698): see [`Words::step_each`].
+    pub each: bool,
 }
 
 impl StepAmount {
@@ -1337,46 +1343,138 @@ fn amount_at(
     let first = word(index)?;
     let opened = first.len() - first.trim_start_matches(['(', '[']).len();
 
-    // The amount: `1 1/2` before `1`, as on an Ingredient Line.
-    let (amount, amount_words) = [2, 1].into_iter().find_map(|take| {
+    // The amount: `1 1/2` before `1`, as on an Ingredient Line, and `680g`
+    // with its Unit written against it (#698).
+    let (amount, amount_words, glued) = [2, 1].into_iter().find_map(|take| {
         let last = index + take - 1;
-        let candidate = &text[words[index].0 + opened..words.get(last)?.1];
-        let candidate = with_thousands_read(candidate, language);
-        units::parse_amount(&candidate).map(|_| (candidate, take))
+        let from = words[index].0 + opened;
+        let to = words.get(last)?.1;
+        let candidate = &text[from..to];
+        let read = with_thousands_read(candidate, language);
+        if units::parse_amount(&read).is_some() {
+            return Some((read, take, None));
+        }
+        let (cut, _) = candidate.char_indices().find(|(_, c)| c.is_alphabetic())?;
+        let unit_start = from + cut;
+        if unit_start <= words[last].0 {
+            return None;
+        }
+        let figure = with_thousands_read(&candidate[..cut], language);
+        units::parse_amount(&figure)?;
+        let unit_end = unit_start
+            + text[unit_start..to]
+                .trim_end_matches(|c: char| !c.is_alphanumeric() && c != '.')
+                .len();
+        let unit = &text[unit_start..unit_end];
+        // `180C` is an oven and `2t` too short to trust in a sentence.
+        if units::lone_letter(unit) {
+            return None;
+        }
+        lists.unit(unit)?;
+        Some((figure, take, Some((unit_start, unit_end))))
     })?;
 
     // The Unit: the longest window the closed set recognises, `c. à s.` being
     // three words. Only its last word can carry the sentence's punctuation.
     let unit_from = index + amount_words;
-    let (unit_end, unit_words) = (1..=3).rev().find_map(|take| {
-        let last = unit_from + take - 1;
-        let (from, to) = (words.get(unit_from)?.0, words.get(last)?.1);
-        let end = from
-            + text[from..to]
-                .trim_end_matches(|c: char| !c.is_alphanumeric() && c != '.')
-                .len();
-        let unit = &text[from..end];
-        // `180 C` in a sentence is an oven, never cups (#326).
-        if units::lone_cup(unit) {
-            return None;
+    let (unit_start, unit_end, unit_words) = match glued {
+        Some((start, end)) => (start, end, 0),
+        None => {
+            let (unit_end, unit_words) = (1..=3).rev().find_map(|take| {
+                let last = unit_from + take - 1;
+                let (from, to) = (words.get(unit_from)?.0, words.get(last)?.1);
+                let end = from
+                    + text[from..to]
+                        .trim_end_matches(|c: char| !c.is_alphanumeric() && c != '.')
+                        .len();
+                let unit = &text[from..end];
+                // `180 C` in a sentence is an oven, never cups (#326).
+                if units::lone_cup(unit) {
+                    return None;
+                }
+                lists.unit(unit).map(|_| (end, take))
+            })?;
+            (words[unit_from].0, unit_end, unit_words)
         }
-        lists.unit(unit).map(|_| (end, take))
-    })?;
-    let unit_start = words[unit_from].0;
-    let end = full_stop_left_out(text, unit_start, unit_end);
+    };
+    let unit_said_end = full_stop_left_out(text, unit_start, unit_end);
+    let unit = text[unit_start..unit_said_end].to_string();
 
-    let after = unit_from + unit_words;
+    // A bracket straight after that says the amount again in the other
+    // system, `680g (about 5 1/3 cups)`, is part of what is written, so the
+    // conversion goes after it rather than inside it (#698).
+    let restated = lists
+        .unit(&unit)
+        .and_then(|source| units::restated_after(&text[unit_said_end..], language, source, true));
+    let end = unit_said_end + restated.as_ref().map_or(0, |restated| restated.end);
+
+    let mut after = unit_from + unit_words;
+    while words.get(after).is_some_and(|(from, _)| *from < end) {
+        after += 1;
+    }
     let food = food_after(lists, &text[end..]);
+    let start = words[index].0 + opened;
+    let each = one_pieces_share(lists, text, start, end);
     Some((
         StepAmount {
-            start: words[index].0 + opened,
+            start,
             end,
             amount,
-            unit: text[unit_start..end].to_string(),
+            unit,
             food,
+            restated,
+            each,
         },
         after - index,
     ))
+}
+
+/// Whether the amount at `start..end` is one piece's share: a
+/// [`Words::step_each`] word before it in its clause, or straight after it,
+/// and not one that counts times, *each time* (#698).
+fn one_pieces_share(lists: &Words, text: &str, start: usize, end: usize) -> bool {
+    let (from, to) = clause_around(text, start, end);
+    let words = |part: &str| -> Vec<String> {
+        part.split(|c: char| !c.is_alphanumeric())
+            .filter(|word| !word.is_empty())
+            .map(units::fold_loosely)
+            .collect()
+    };
+    let before = words(&text[from..start]);
+    let after = words(&text[end..to]);
+    let each_at = |words: &[String], at: usize| {
+        words.get(at).is_some_and(|word| lists.step_each.has(word))
+            && !words
+                .get(at + 1)
+                .is_some_and(|next| lists.step_each_time.has(next))
+    };
+    (0..before.len()).any(|at| each_at(&before, at))
+        || (each_at(&after, 0) && !after.get(1).is_some_and(|next| next == "of"))
+}
+
+/// Where the clause of `text` that `start..end` sits in begins and ends: back to the mark before
+/// it and on to the mark after it, a comma, a semicolon, a colon or the full
+/// stop that ends a sentence. A dot between two digits, or after an
+/// abbreviation with the sentence going on, `approx. 280g`, ends nothing.
+fn clause_around(text: &str, start: usize, end: usize) -> (usize, usize) {
+    let ends_a_clause = |at: usize, c: char| {
+        matches!(c, ',' | ';' | ':' | '!' | '?')
+            || (c == '.'
+                && !text[at + 1..]
+                    .trim_start()
+                    .chars()
+                    .next()
+                    .is_some_and(|next| next.is_ascii_digit() || next.is_lowercase()))
+    };
+    let from = text[..start]
+        .char_indices()
+        .rfind(|&(at, c)| ends_a_clause(at, c))
+        .map_or(0, |(at, c)| at + c.len_utf8());
+    let to = text[end..]
+        .char_indices()
+        .find(|&(at, c)| ends_a_clause(end + at, c))
+        .map_or(text.len(), |(at, _)| end + at);
+    (from, to)
 }
 
 /// Whether the dot after a Unit is the Unit's own or the sentence's. The
@@ -1391,6 +1489,10 @@ fn full_stop_left_out(text: &str, start: usize, end: usize) -> usize {
     let Some(word) = text[start..end].strip_suffix('.') else {
         return end;
     };
+    // Nothing after it: the Step's own full stop.
+    if text[end..].trim().is_empty() {
+        return end - 1;
+    }
     let goes_on = text[end..]
         .trim_start()
         .chars()
@@ -1695,6 +1797,65 @@ mod tests {
         assert_eq!(amounts_in_step("Add 1,5 g salt.", "en")[0].amount, "1,5");
         // French keeps its decimal comma (#180).
         assert_eq!(amounts_in_step(text, "fr")[0].amount, "1,020");
+    }
+
+    /// The Sample Library's pizza dough writes its grams against the `g`
+    /// (#698): `680g` was one word, and read as nothing.
+    #[test]
+    fn a_step_reads_an_amount_written_against_its_unit() {
+        let text = "Divide into four equal pieces, each weighing about 280g.";
+        let found = amounts_in_step(text, "en");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].written(text), "280g");
+        assert_eq!(
+            (found[0].amount.as_str(), found[0].unit.as_str()),
+            ("280", "g")
+        );
+        assert!(found[0].each, "one piece's weight, as much at any Yield");
+        // Found at review: a capital, an abbreviation's dot, and an amount
+        // added each time, which still scales.
+        let each = |text: &str| amounts_in_step(text, "en")[0].each;
+        assert!(each("Divide into 4 pieces. Each should weigh about 280g."));
+        assert!(each("Divide into four pieces, each weighing approx. 280g."));
+        assert!(each("Divide into four pieces of 280g each."));
+        assert!(!each("Add 120 ml of stock each time the pan is dry."));
+        assert!(!each("Each time the pan is dry add 120 ml of stock."));
+        assert!(!each("Add 100 g sugar to each of the two bowls."));
+        assert!(!amounts_in_step("Añade 50 ml de caldo cada vez.", "es")[0].each);
+        // An oven is still no cup, written against its letter or not.
+        assert!(amounts_in_step("Bake at 180C for 20 minutes.", "en").is_empty());
+        assert!(amounts_in_step("Warm it to 86F/30C.", "en").is_empty());
+        // A number against other letters is no amount.
+        assert!(amounts_in_step("Do it a 2nd time, 4x over.", "en").is_empty());
+    }
+
+    /// A Step that restates its amount in brackets in the other system has
+    /// one amount, and its conversion goes after the bracket, never inside it
+    /// (#698): the pizza dough at 8 read `(about 5 1/3 cups (about 10⅝ cups))`.
+    #[test]
+    fn a_step_amount_restated_in_brackets_is_one_amount() {
+        let text = "Mix warm water with olive oil, yeast, salt, and sugar then use a sturdy spoon to gradually add 680g (about 5 1/3 cups) of all-purpose flour to the bowl and combine until flour has hydrated and has formed into a clump of dough.";
+        let found = amounts_in_step(text, "en");
+        assert_eq!(found.len(), 1, "{found:?}");
+        let flour = &found[0];
+        assert_eq!(flour.written(text), "680g (about 5 1/3 cups)");
+        assert_eq!((flour.amount.as_str(), flour.unit.as_str()), ("680", "g"));
+        assert_eq!(
+            flour
+                .restated
+                .as_ref()
+                .map(|restated| (restated.amount.as_str(), restated.unit.as_str())),
+            Some(("5 1/3", "cups"))
+        );
+        assert_eq!(flour.food.as_deref(), Some("all-purpose flour"));
+        assert!(!flour.each);
+
+        // A bracket that adds to the amount is no restatement.
+        let more = "Add 1 cup (plus 2 tbsp) milk.";
+        let found = amounts_in_step(more, "en");
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0].written(more), "1 cup");
+        assert!(found[0].restated.is_none());
     }
 
     #[test]

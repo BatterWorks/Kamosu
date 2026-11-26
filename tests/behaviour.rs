@@ -23885,6 +23885,97 @@ async fn a_scaled_line_reads_whole_with_its_food_and_its_range() {
     );
 }
 
+/// The Sample Library's pizza dough, cooked at twice and half its Yield by a
+/// cook who reads in US measures (#698). Its lines write grams against the
+/// `g` and restate them in spoons and cups, and its Steps do the same.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_pizza_dough_scales_in_the_measures_it_already_gives_an_american() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    reads_in(&app, &key, "en", "us");
+
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "title": "Easiest Actually Good Pizza Dough",
+            "yield": { "amount": "4", "noun": "pizzas" },
+            "ingredients": [
+                { "kind": "ingredient", "text": "400g (1 2/3c) Warm Water, 86F/30C" },
+                { "kind": "ingredient", "text": "7g (2t) Instant Yeast" },
+                { "kind": "ingredient", "text": "680g (5 3/4c) All-purpose flour" },
+            ],
+            "steps": [
+                { "kind": "step", "text": "Mix warm water with olive oil, yeast, salt, and sugar then use a sturdy spoon to gradually add 680g (about 5 1/3 cups) of all-purpose flour to the bowl and combine until flour has hydrated and has formed into a clump of dough." },
+                { "kind": "step", "text": "After the total fermentation time of 90 minutes, turn the dough out onto a lightly floured surface." },
+                { "kind": "step", "text": "Divide into four equal pieces, each weighing about 280g." },
+                { "kind": "step", "text": "Bake at the oven's hottest, 275 °C here: 12 to 14 minutes for the pan pizza, 11 to 12 on a stone or steel." },
+            ],
+        })
+        .to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap();
+    let version = &created["result"]["versions"][0];
+    // As written, every line already gives her spoons and cups.
+    assert_eq!(
+        version["measured"]["ingredients"],
+        json!([null, null, null]),
+        "{created}"
+    );
+    assert_eq!(
+        version["cooking"]["steps"][1]["timer_seconds"],
+        json!(null),
+        "the 90 minutes are the rests before this Step, already waited"
+    );
+
+    let measured = |amount: &str| {
+        let (_, read) = app.post_op(
+            "get_recipe",
+            Some(&key),
+            &json!({
+                "branch_id": branch_id,
+                "wanted_yield": { "amount": amount, "noun": "pizzas" },
+            })
+            .to_string(),
+        );
+        read["result"]["versions"][0]["measured"].clone()
+    };
+
+    let eight = measured("8");
+    assert_eq!(
+        eight["ingredients"],
+        json!([
+            "3⅓ cups Warm Water, 86F/30C",
+            "4 tsp Instant Yeast",
+            "11½ cups All-purpose flour",
+        ])
+    );
+    assert_eq!(
+        eight["steps"],
+        json!([
+            [{ "written": "680g (about 5 1/3 cups)", "measured": "10⅔ cups" }],
+            null,
+            // One piece of dough weighs the same however many pizzas.
+            [{ "written": "280g", "measured": "about 10 oz" }],
+            [{ "written": "275 °C", "measured": "about 525 °F" }],
+        ])
+    );
+
+    let two = measured("2");
+    assert_eq!(
+        two["steps"][0],
+        json!([{ "written": "680g (about 5 1/3 cups)", "measured": "2⅔ cups" }])
+    );
+    assert_eq!(
+        two["ingredients"],
+        json!([
+            "about ⅞ cup Warm Water, 86F/30C",
+            "1 tsp Instant Yeast",
+            "2⅞ cups All-purpose flour",
+        ])
+    );
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_recipe_already_in_your_measures_is_untouched_within_its_own_system() {
     let app = support::spawn_app();
