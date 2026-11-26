@@ -10,7 +10,7 @@
  * it, the screen has gone wrong.
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { cleanup, render, screen, fireEvent, within } from '@testing-library/svelte';
 import { standIn, type Answers, type Refusal } from '#lib/api/stand-in.js';
 import { reached, refreshed } from '#lib/offline/device.svelte.js';
@@ -184,10 +184,26 @@ const cook = async (over: Answers = {}, { asked = false, room = 'phone' as Room 
 	const start = over.start_attempt ?? attempt();
 	const opensOnTheQuestion =
 		typeof start === 'object' && 'current_step_index' in start && fresh(start);
-	if (opensOnTheQuestion && !asked)
+	if (opensOnTheQuestion && !asked) {
 		await fireEvent.click(await screen.findByRole('button', { name: 'Start cooking' }));
+		// A moment passes before the cook's next tap, as at the stove: Back and
+		// Next take no tap for a bounce's length after a move, Start included.
+		if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(BOUNCE_PAST);
+		else {
+			const real = Date.now.bind(Date);
+			shifted = vi.spyOn(Date, 'now').mockImplementation(() => real() + BOUNCE_PAST);
+		}
+	}
 	return kamosu;
 };
+
+/** Longer than the screen's bounce guard on Back, Next and Finish. */
+const BOUNCE_PAST = 600;
+let shifted: MockInstance<() => number> | undefined;
+afterEach(() => {
+	shifted?.mockRestore();
+	shifted = undefined;
+});
 
 /**
  * The innermost element whose whole text is exactly this — the step, the
@@ -536,12 +552,32 @@ describe('the cooking screen', () => {
 		expect(screen.queryByText('Tick each one as it goes in')).toBeNull();
 	});
 
-	it('opens More over the Step and closes it on a tap anywhere else (#681)', async () => {
-		await cook();
+	it('opens More over the Step and closes it on a tap anywhere else, which presses nothing', async () => {
+		const kamosu = await cook();
 		await openMore();
 		expect(screen.getByRole('button', { name: 'Throw this cooking away' })).toBeInTheDocument();
-		await fireEvent.pointerDown(await exactly('Coat the chicken in panko.'));
+		// A layer over the rest of the screen takes the tap: the line beneath the
+		// thumb is not ticked (round 2 of #681's climb).
+		const layer = document.querySelector('button.fixed.inset-0');
+		expect(layer).not.toBeNull();
+		await fireEvent.click(layer as HTMLElement);
 		expect(screen.queryByRole('button', { name: 'Throw this cooking away' })).toBeNull();
+		expect(kamosu.calls.map((call) => call.operation)).not.toContain('advance_attempt');
+	});
+
+	it('does not skip the first Step on a double tap of Start cooking', async () => {
+		vi.useFakeTimers();
+		try {
+			await cook({}, { asked: true });
+			await vi.waitFor(() => screen.getByRole('button', { name: 'Start cooking' }));
+			await fireEvent.click(screen.getByRole('button', { name: 'Start cooking' }));
+			// Next stands where Start cooking was; the second half of the tap lands on it.
+			await vi.waitFor(() => screen.getByRole('button', { name: 'Next step' }));
+			await fireEvent.click(screen.getByRole('button', { name: 'Next step' }));
+			expect(screen.getByText('Coat the chicken in panko.')).toBeInTheDocument();
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it('offers no timer on a Step that names no duration', async () => {
@@ -555,6 +591,50 @@ describe('the cooking screen', () => {
 		await fireEvent.click(await screen.findByRole('button', { name: /next step/i }));
 		const advance = kamosu.calls.find((call) => call.operation === 'advance_attempt');
 		expect(advance?.input).toEqual({ attempt_id: 'at_1', current_step_index: 2 });
+	});
+
+	it('offers to try again, and the way back, when the cooking could not start', async () => {
+		let refused = true;
+		const kamosu = await cook({
+			start_attempt: () =>
+				refused
+					? { refuse: 'internal', message: 'The start went wrong.' }
+					: attempt({ current_step_index: 1 }),
+		});
+		expect(await screen.findByText('Could not start cooking this recipe.')).toBeInTheDocument();
+		expect(screen.getByRole('link', { name: 'Back to the recipe' })).toHaveAttribute(
+			'href',
+			'/recipes/b_1',
+		);
+		refused = false;
+		await fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+		expect(await exactly('Coat the chicken in panko.')).toBeInTheDocument();
+		expect(kamosu.calls.filter((call) => call.operation === 'start_attempt')).toHaveLength(2);
+	});
+
+	it('says so when Kamosu refuses a move, rather than going back without a word', async () => {
+		let refused = true;
+		await cook({
+			advance_attempt: (input) =>
+				refused
+					? { refuse: 'internal', message: 'The write went wrong.' }
+					: attempt({ current_step_index: input.current_step_index ?? 1 }),
+		});
+		await fireEvent.click(await screen.findByRole('button', { name: 'Next step' }));
+		// Back on the Step the cook was on, and told why (round 2 of #681's climb).
+		expect(await screen.findByText('Kamosu could not save that. Try again.')).toHaveAttribute(
+			'role',
+			'alert',
+		);
+		expect(await exactly('Coat the chicken in panko.')).toBeInTheDocument();
+		// Tried again, it goes, and the line goes with it.
+		refused = false;
+		await new Promise((resolve) => setTimeout(resolve, 400));
+		await fireEvent.click(screen.getByRole('button', { name: 'Next step' }));
+		expect(await exactly('Pour in the water and simmer for about 7 minutes.')).toBeInTheDocument();
+		await vi.waitFor(() =>
+			expect(screen.queryByText('Kamosu could not save that. Try again.')).toBeNull(),
+		);
 	});
 
 	it('writes a ticked Ingredient through to the server, sent whole rather than patched', async () => {
@@ -890,6 +970,73 @@ describe('writing down what you actually cooked', () => {
 			'aria-expanded',
 			'false',
 		);
+	});
+
+	it('keeps a line rewritten past recognition on its Step when the cooking is opened again', async () => {
+		// The Core pairs a line rewritten in wholly other words as the recipe's
+		// one dropped and the cook's one added straight after it (ADR 0019).
+		// Opened again, the Step showed the struck panko and nothing in its
+		// place (round 2 of #681's climb).
+		const recipe = answers().get_recipe as GetRecipeOutput;
+		const content = recipe.versions[0].content;
+		type Row = NonNullable<StartAttemptOutput['as_cooked']>['against']['ingredients'][number];
+		const same = (index: number, kind: string, text: string): Row => ({
+			from_branch_point: false,
+			kind,
+			mine: { index, kind, text },
+			place: { mine: index, theirs: index },
+			state: 'same',
+			theirs: { index, kind, text },
+		});
+		const ingredients: Row[] = [
+			same(0, 'section', 'For the cutlets'),
+			same(1, 'ingredient', '2 chicken breasts'),
+			{
+				from_branch_point: false,
+				kind: 'ingredient',
+				mine: { index: 2, kind: 'ingredient', text: '1 cup panko' },
+				place: { mine: 2, theirs: 2 },
+				state: 'only-mine',
+				theirs: null,
+			},
+			{
+				from_branch_point: false,
+				kind: 'ingredient',
+				mine: null,
+				place: { mine: 3, theirs: 2 },
+				state: 'only-theirs',
+				theirs: { index: 2, kind: 'ingredient', text: '1 cup breadcrumbs' },
+			},
+			same(3, 'ingredient', '800 ml water'),
+			same(4, 'ingredient', 'a pinch of salt'),
+		];
+		await cook({
+			start_attempt: attempt({
+				current_step_index: 1,
+				as_cooked: {
+					against: {
+						ingredients,
+						steps: content.steps.map((step, index) => same(index, step.kind, step.text)),
+					},
+					content: {
+						...content,
+						ingredients: [
+							INGREDIENTS[0],
+							INGREDIENTS[1],
+							{ kind: 'ingredient', text: '1 cup breadcrumbs' },
+							INGREDIENTS[3],
+							INGREDIENTS[4],
+						],
+					},
+					promotion_declined: false,
+					version_id: 'v_2',
+				},
+			}),
+		});
+		expect(await exactly('1 cup breadcrumbs')).toBeInTheDocument();
+		// Drawn with no tick box: a line the cook wrote has nowhere to keep one.
+		expect(screen.queryByRole('button', { name: /breadcrumbs/i })).toBeNull();
+		expect(screen.getByRole('button', { name: /1 cup panko/i })).toBeInTheDocument();
 	});
 
 	it('inserts a step before this one and leaves the cook standing on it', async () => {

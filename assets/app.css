@@ -539,6 +539,9 @@
   .bottom-\[6px\] {
     bottom: 6px;
   }
+  .bottom-full {
+    bottom: 100%;
+  }
   .beside-rail {
     padding-left: var(--spacing-rail);
     & .fixed.inset-x-0 {
@@ -1483,6 +1486,9 @@
   }
   .transform {
     transform: var(--tw-rotate-x, ) var(--tw-rotate-y, ) var(--tw-rotate-z, ) var(--tw-skew-x, ) var(--tw-skew-y, );
+  }
+  .cursor-default {
+    cursor: default;
   }
   .cursor-grab {
     cursor: grab;
@@ -2574,6 +2580,10 @@
     .wide\:pl-0 {
       padding-left: var(--spacing-0);
     }
+    .wide\:text-step-reading {
+      font-size: var(--text-step-reading);
+      letter-spacing: var(--tw-tracking, var(--text-step-reading--letter-spacing));
+    }
     .wide\:text-foot-far {
       font-size: var(--text-foot-far);
     }
@@ -2729,8 +2739,27 @@
     display: none;
   }
   @media (orientation: landscape) and (height < 560px) {
+    .sideways\:\[\&\>button\]\:relative > button {
+      position: relative;
+    }
     .sideways\:\[\&\>button\]\:min-h-\[40px\] > button {
       min-height: 40px;
+    }
+    .sideways\:\[\&\>button\]\:after\:absolute > button::after {
+      content: var(--tw-content);
+      position: absolute;
+    }
+    .sideways\:\[\&\>button\]\:after\:inset-x-0 > button::after {
+      content: var(--tw-content);
+      inset-inline: var(--spacing-0);
+    }
+    .sideways\:\[\&\>button\]\:after\:inset-y-\[-4px\] > button::after {
+      content: var(--tw-content);
+      inset-block: -4px;
+    }
+    .sideways\:\[\&\>button\]\:after\:content-\[\'\'\] > button::after {
+      --tw-content: '';
+      content: var(--tw-content);
     }
   }
   .\[\&\>li\]\:w-\[var\(--tile-w-rail\)\] > li {
@@ -3220,6 +3249,11 @@
   syntax: "*";
   inherits: false;
 }
+@property --tw-content {
+  syntax: "*";
+  initial-value: "";
+  inherits: false;
+}
 @layer properties {
   @supports ((-webkit-hyphens: none) and (not (margin-trim: block))) or ((-moz-orient: inline) and (not (color:rgb(from red r g b)))) {
     *, ::before, ::after, ::backdrop {
@@ -3270,6 +3304,7 @@
       --tw-drop-shadow-color: initial;
       --tw-drop-shadow-alpha: 100%;
       --tw-drop-shadow-size: initial;
+      --tw-content: "";
     }
   }
 }
