@@ -503,6 +503,46 @@ fn only_describing(lists: &Words, words: &[&str]) -> bool {
             .all(|word| lists.describing.has(word) || lists.describing_joins.has(word))
 }
 
+/// **The Foods a line offering a choice names, one per option**, each option
+/// read as a line of its own: `½ cup full fat canned coconut milk or heavy
+/// cream` names *full fat canned coconut milk* and *heavy cream* (#697).
+///
+/// The line's Reading still names no Food ([`offers_a_choice`], #148), since
+/// a Reading is one Food and the shopping list buys one. This is for what
+/// only has to find the line again, a Step naming it by either option. An
+/// option the reader reads no Food in, or only a Unit, such as the measure
+/// in `4 g or 1 tsp yeast`, gives nothing. An option that is only a word
+/// such as *soft* is kept: what may name a line is the Step linker's to
+/// judge. A line offering no choice gives nothing at all. What brackets
+/// hold is the cook's aside and offers no choice.
+pub fn choice_names(line: &str, language: &str) -> Vec<String> {
+    let lists = words::of(language);
+    let line = without_brackets(line);
+    let words: Vec<&str> = line.split_whitespace().collect();
+    let mut options: Vec<Vec<&str>> = vec![Vec::new()];
+    for (at, word) in words.iter().enumerate() {
+        let a_choice = lists.choices.has(word) && at > 0 && at + 1 < words.len();
+        if a_choice {
+            options.push(Vec::new());
+        } else {
+            options.last_mut().expect("never empty").push(word);
+        }
+    }
+    if options.len() < 2 {
+        return Vec::new();
+    }
+    options
+        .iter()
+        .filter_map(|option| {
+            let option = option.join(" ");
+            let option = option.trim_matches(|c: char| c == ',' || c.is_whitespace());
+            read_line(option, language)?
+                .target
+                .filter(|name| !is_a_unit_word(name))
+        })
+        .collect()
+}
+
 /// **Whether a Food is made only of describing words**, `boneless` or
 /// `minced`: the fault #163 fixed. The corpus test asks this of every Reading,
 /// beside [`is_a_unit_word`], so it cannot come back unseen.
@@ -1661,6 +1701,34 @@ mod tests {
     fn a_step_amount_names_the_food_without_its_temperature() {
         let amounts = amounts_in_step("Ajouter 100 g de beurre froid en dés.", "fr");
         assert_eq!(amounts[0].food.as_deref(), Some("beurre"));
+    }
+
+    #[test]
+    fn a_line_offering_a_choice_names_each_option_for_a_step() {
+        let names = |line: &str| choice_names(line, "en");
+        assert_eq!(
+            names("½ cup full fat canned coconut milk or heavy cream"),
+            ["full fat canned coconut milk", "heavy cream"]
+        );
+        assert_eq!(
+            names("1/2 lbs ground pork or beef"),
+            ["ground pork", "beef"]
+        );
+        // `soft` is no Food, and a Step never names the line by it alone
+        // (`step_uses.rs`, `names_nothing_alone`).
+        assert_eq!(names("16 oz soft or silken tofu"), ["soft", "silken tofu"]);
+        // A measure on its own names nothing.
+        assert_eq!(names("4 g or 1 tsp instant yeast"), ["instant yeast"]);
+        // No choice, and none inside the cook's aside.
+        assert!(names("2 cups milk").is_empty());
+        assert!(names("1 cup milk (whole or skimmed)").is_empty());
+        // French gold is no choice: `or` against its elided article is one
+        // word with it, `d'or`, and a line breaks only at a word.
+        assert!(choice_names("1 pincée de poudre d'or", "fr").is_empty());
+        assert_eq!(
+            choice_names("200 g de beurre ou d'huile", "fr"),
+            ["beurre", "huile"]
+        );
     }
 
     #[test]

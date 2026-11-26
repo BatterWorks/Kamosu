@@ -612,6 +612,20 @@ word_lists! {
     /// [`step_next_actions`](Self::step_next_actions).
     step_and: Loose,
 
+    /// The words that leave a food out, as *until* does: *all the baked
+    /// ingredients, besides the thyme* adds no thyme (#697).
+    step_except: Loose,
+
+    /// The word for an amount beyond the one written, as in *serve with more
+    /// chili oil*: a line an earlier Step already used, named after it, is
+    /// not going in again (#697).
+    step_more: Loose,
+
+    /// What a Step may call a food by that its name never holds, each with
+    /// the names it stands for: *the mince* is the *ground pork* (#697).
+    /// Folded as [`List`] folds.
+    step_other_names: HashMap<String, Vec<String>>,
+
     /// The heading a recipe puts over its list of ingredients. It is a Section
     /// like [`paste_sections`](Self::paste_sections), and above it a page says
     /// what it likes, none of which is an Ingredient Line (#301).

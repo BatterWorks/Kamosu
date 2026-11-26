@@ -25,7 +25,9 @@
 //!   water has evaporated* adds no water, so a mention after *until*,
 //!   *jusqu'à* or *hasta* counts for nothing up to the next comma or full
 //!   stop, or the next thing to do: *until soft and add the garlic* adds the
-//!   garlic (#294).
+//!   garlic (#294). *Besides* and *except* leave a food out the same way, and
+//!   *more chili oil* after a Step that used the chili oil is beyond the
+//!   line's amount, so it is not listed again (#697).
 //! - **A word the title holds names the dish.** *Ladle the curry* in a
 //!   *Vietnamese beef curry* serves the dish, not the curry powder, so a part
 //!   of a name that the recipe's title also holds links nothing. The whole
@@ -37,6 +39,12 @@
 //! Whole words only, as always: *rice* is never found in *price*, nor *ail* in
 //! half the French language. One trailing `s` on a word is forgiven, so a line
 //! read as *egg* is used by a Step that says *eggs*.
+//!
+//! A line offering a choice, *coconut milk or heavy cream*, has a Reading that
+//! names no Food (#148), and a Step finds it by either option, each read as a
+//! line of its own. A Step may also call a food something its name never
+//! holds, *the mince* for *ground pork*, from the word files'
+//! `step_other_names`. Both came from #697.
 
 use std::ops::Range;
 
@@ -143,7 +151,10 @@ fn words_of(lists: &Words, text: &str) -> Vec<Word> {
             until_in = None;
             when_open = false;
         }
-        if until_in.is_none() && lists.step_until.has(text) {
+        // *Besides the thyme* leaves the thyme out as *until* does (#697),
+        // and *except 2 tbsp of the butter* adds the rest of it.
+        let leaves_out = lists.step_until.has(text) || lists.step_except.has(text);
+        if until_in.is_none() && leaves_out {
             let next = words[at + 1..]
                 .iter()
                 .find(|(word, _)| word != "a")
@@ -217,6 +228,8 @@ struct Line {
     section: usize,
     /// Whether the name holds one food, where *salt and pepper* holds two.
     one_food: bool,
+    /// Whether the line offers a choice and is named by its options (#697).
+    choice: bool,
 }
 
 /// A run of a name's words that may stand for the line: whether it is the
@@ -226,6 +239,9 @@ struct Run {
     words: Vec<String>,
     whole: bool,
     made_from: bool,
+    /// Whether the run is a name the line's own words never hold, one of
+    /// [`Words::step_other_names`] (#697).
+    other_name: bool,
 }
 
 /// The folded words of a name, and where each food in it begins and ends: a
@@ -337,8 +353,34 @@ fn runs_of(lists: &Words, target: &str, language: Option<&str>) -> (Vec<String>,
                     words: run.to_vec(),
                     whole,
                     made_from: left_out.any(|word| reading::made_from(lists, word)),
+                    other_name: false,
                 });
             }
+        }
+    }
+    // A name a Step calls the food by, where the line's name holds one of
+    // the names it stands for: *the mince* of *ground pork* (#697).
+    for (other, stands_for) in &lists.step_other_names {
+        let holds = stands_for.iter().any(|name| {
+            let name: Vec<String> = split_words(lists, name, &[])
+                .into_iter()
+                .map(|(word, _)| word)
+                .collect();
+            !name.is_empty()
+                && words.windows(name.len()).any(|there| {
+                    there
+                        .iter()
+                        .zip(&name)
+                        .all(|(word, want)| same_word(lists, word, want))
+                })
+        });
+        if holds {
+            runs.push(Run {
+                words: vec![folded_word(lists, other)],
+                whole: false,
+                made_from: false,
+                other_name: true,
+            });
         }
     }
     (words, runs)
@@ -354,9 +396,15 @@ struct Mention {
     len: usize,
     whole: bool,
     made_from: bool,
+    other_name: bool,
 }
 
 impl Mention {
+    /// Whether this mention's words all lie inside `other`'s.
+    fn within(&self, other: &Mention) -> bool {
+        other.start <= self.start && self.start + self.len <= other.start + other.len
+    }
+
     fn overlaps(&self, other: &Mention) -> bool {
         self.start < other.start + other.len && other.start < self.start + self.len
     }
@@ -417,10 +465,18 @@ fn mentions_of(lists: &Words, line: &Line, step: &[Word]) -> Vec<Mention> {
         };
         for start in 0..step.len().saturating_sub(run.words.len() - 1) {
             let there = &step[start..start + run.words.len()];
-            if there
-                .iter()
-                .zip(&run.words)
-                .all(|(word, want)| same(&word.text, want))
+            // A Step's word that names nothing alone is no part of a name
+            // either, though its plural is: *the green portion* is no
+            // *mustard greens* (#697).
+            let names_nothing = !run.whole
+                && there
+                    .iter()
+                    .all(|word| reading::names_nothing_alone(lists, &word.text));
+            if !names_nothing
+                && there
+                    .iter()
+                    .zip(&run.words)
+                    .all(|(word, want)| same(&word.text, want))
             {
                 found.push(Mention {
                     line: line.index,
@@ -428,6 +484,7 @@ fn mentions_of(lists: &Words, line: &Line, step: &[Word]) -> Vec<Mention> {
                     len: run.words.len(),
                     whole: run.whole,
                     made_from: run.made_from,
+                    other_name: run.other_name,
                 });
             }
         }
@@ -456,6 +513,7 @@ fn dutch_mentions(lists: &Words, line: &Line, step: &[Word]) -> Vec<Mention> {
                     len: 1,
                     whole: false,
                     made_from: run.made_from,
+                    other_name: false,
                 });
             }
         }
@@ -527,8 +585,60 @@ pub fn step_uses(
             .iter()
             .enumerate()
             .filter_map(|(index, reading)| {
-                let target = reading.get("target")?.as_str()?;
-                let (words, runs) = runs_of(lists, target, language);
+                // A Food stored as a choice, `yacai or preserved mustard
+                // greens`, as an agent or a person may set it, is read as the
+                // choice it is.
+                let target = reading.get("target").and_then(Value::as_str);
+                let options = match target {
+                    Some(target) => reading::choice_names(target, language.unwrap_or(UNKNOWN)),
+                    None => choice_options(ingredients.get(index)?, reading, language),
+                };
+                let (words, runs, one_food, choice) = match target {
+                    Some(target) if options.is_empty() => {
+                        let (words, runs) = runs_of(lists, target, language);
+                        let one_food = name_words(lists, target).1.len() == 1;
+                        (words, runs, one_food, false)
+                    }
+                    // Each option is read as a name of its own, and none
+                    // is the line's whole name: *milk* in *milk or water*
+                    // is no more made from water than *soft* is a tofu.
+                    _ => {
+                        let mut words = Vec::new();
+                        let mut runs = Vec::new();
+                        // *Chicken or vegetable stock* may be chicken stock:
+                        // a one-word option before a last option ending in
+                        // what is made from a food is, maybe, made from it
+                        // too, so *the chicken* is the chicken where a line
+                        // holds one (#697).
+                        let made_like_the_last = options.last().is_some_and(|last| {
+                            let last = split_words(lists, last, &[]);
+                            last.len() > 1
+                                && last[1..]
+                                    .iter()
+                                    .any(|(word, _)| reading::made_from(lists, word))
+                        });
+                        for (at, option) in options.iter().enumerate() {
+                            let (option_words, option_runs) = runs_of(lists, option, language);
+                            let maybe_made = made_like_the_last
+                                && at + 1 < options.len()
+                                && option_words.len() == 1;
+                            words.extend(option_words);
+                            runs.extend(
+                                option_runs
+                                    .into_iter()
+                                    .map(|run| Run {
+                                        whole: false,
+                                        made_from: run.made_from || maybe_made,
+                                        ..run
+                                    })
+                                    .filter(|run| {
+                                        run.other_name || names_the_food(lists, &run.words)
+                                    }),
+                            );
+                        }
+                        (words, runs, false, true)
+                    }
+                };
                 (!words.is_empty()).then(|| Line {
                     index,
                     food: words
@@ -541,7 +651,8 @@ pub fn step_uses(
                         .join(" "),
                     runs,
                     section: sections[index],
-                    one_food: name_words(lists, target).1.len() == 1,
+                    one_food,
+                    choice,
                 })
             })
             .collect(),
@@ -561,6 +672,18 @@ pub fn step_uses(
             Some(uses)
         })
         .collect()
+}
+
+/// The options a line offering a choice is found by, `ground pork` and
+/// `beef` (#697). Its Reading names no Food, on purpose (#148), and a Step
+/// names it by either option. Nothing for a line pointing at a recipe, or one
+/// offering no choice.
+fn choice_options(row: &Value, reading: &Value, language: Option<&str>) -> Vec<String> {
+    if row["kind"] != "ingredient" || reading["lineage_id"].is_string() {
+        return Vec::new();
+    }
+    let text = row["text"].as_str().unwrap_or_default();
+    reading::choice_names(text, language.unwrap_or(UNKNOWN))
 }
 
 /// What every Step of one recipe is read against: the words of its title,
@@ -712,6 +835,153 @@ impl Recipe<'_> {
         }
     }
 
+    /// Whether the Branch is English, or of no Language Kamosu knows, which
+    /// English rules may read.
+    fn english(&self) -> bool {
+        matches!(self.language, None | Some("en" | UNKNOWN))
+    }
+
+    /// Whether a mention by one of [`Words::step_other_names`] is the verb
+    /// spelt the same: *mince the garlic*, *mince garlic, then…*, *finely
+    /// mince garlic*. The verb opens what the cook does, after *then* or a
+    /// word ending in *-ly* at most, or is followed by an article or a food. The noun
+    /// is what something is done to: *cook mince until browned*, *fry the
+    /// mince 5 minutes*.
+    fn is_a_verb(&self, step: &[Word], mention: &Mention, found: &[Mention]) -> bool {
+        let lists = self.lists;
+        let at = mention.start;
+        let clause = step[at].clause;
+        // An English adverb, *finely*, may stand before the verb.
+        let adverb = |word: &&Word| self.english() && word.text.ends_with("ly");
+        let before = step[..at]
+            .iter()
+            .rev()
+            .take_while(|word| word.clause == clause)
+            .find(|word| !adverb(word));
+        // After *and* it is the verb only before what it is done to: *peel
+        // and mince the garlic*, but *brown the onion and mince*. With
+        // nothing before it in its clause, it opens the Step, or it is one
+        // food in a list: *add the onion, garlic, mince and tomato paste*.
+        let opens = match before {
+            Some(word) => lists.step_then.has(&word.text),
+            None => step[..at].iter().all(|word| adverb(&word)),
+        };
+        let after = at + mention.len;
+        opens
+            || step.get(after).is_some_and(|next| {
+                lists.step_articles.has(&next.text)
+                    || found
+                        .iter()
+                        .any(|other| other.line != mention.line && other.start == after)
+            })
+    }
+
+    /// Whether a mention by one word of a line offering a choice is only a
+    /// word describing another line's food: *smoked* of *smoked or sweet
+    /// paprika* in *add the smoked sausage* (#697). Another line is then
+    /// named straight after it. Anything else after it, *brown the beef 5
+    /// minutes*, *le beurre fondu*, leaves the mention standing.
+    fn describes_another(&self, step: &[Word], mention: &Mention, found: &[Mention]) -> bool {
+        if mention.len != 1 || !self.line(mention.line).choice {
+            return false;
+        }
+        let after = mention.start + 1;
+        step.get(after).is_some_and(|next| {
+            next.clause == step[mention.start].clause
+                && found
+                    .iter()
+                    .any(|other| other.line != mention.line && other.start == after)
+        })
+    }
+
+    /// Whether a mention is of more than the line holds: *serve with more
+    /// chili oil* after a Step that already used the chili oil (#697). A
+    /// line no earlier Step used is still the line, *more* or not.
+    /// The mention may be a part of a longer one of the same line, *oil* in
+    /// *more chili oil*, which `mentions` holds.
+    fn more_than_written(
+        &self,
+        step: &[Word],
+        mention: &Mention,
+        mentions: &[Mention],
+        used_before: &[usize],
+    ) -> bool {
+        let lists = self.lists;
+        // *Davantage d'huile*: the word for more stands before *de*.
+        let more_before = |start: usize| {
+            let mut before = step[..start]
+                .iter()
+                .rev()
+                .skip_while(|word| lists.step_of.has(&word.text));
+            let more = before
+                .next()
+                .is_some_and(|word| lists.step_more.has(&word.text));
+            // *2 more eggs* is the rest of the line's amount.
+            let counted = before
+                .next()
+                .is_some_and(|word| word.text.starts_with(|c: char| c.is_ascii_digit()));
+            more && !counted
+        };
+        used_before.contains(&mention.line)
+            && mentions.iter().any(|longer| {
+                longer.line == mention.line && mention.within(longer) && more_before(longer.start)
+            })
+    }
+
+    /// The lines a shared tail names beside the one it names whole: *light
+    /// and dark soy sauce* is the dark soy sauce, and the light soy sauce
+    /// too (#697). English alone: French and Spanish put the main word first
+    /// and the shared word after (*sauce soja claire et foncée*), and Dutch
+    /// writes such a food as one word. Only a line whose whole
+    /// name the first word and the tail make, the first written in place of
+    /// the tail's first word, and only where no other line is named by that
+    /// first word. Each is a mention of that one word.
+    fn shared_tails(&self, step: &[Word], mentions: &[Mention]) -> Vec<Mention> {
+        let lists = self.lists;
+        if !self.english() {
+            return Vec::new();
+        }
+        let mut found = Vec::new();
+        for tail in mentions
+            .iter()
+            .filter(|mention| mention.whole && mention.len > 1)
+        {
+            let Some(first) = tail.start.checked_sub(2) else {
+                continue;
+            };
+            if !lists.step_and.has(&step[tail.start - 1].text)
+                || mentions
+                    .iter()
+                    .any(|other| other.start <= first && first < other.start + other.len)
+            {
+                continue;
+            }
+            let rest = &step[tail.start + 1..tail.start + tail.len];
+            for line in &self.lines {
+                let names_it = line.runs.iter().any(|run| {
+                    run.whole
+                        && run.words.len() == tail.len
+                        && same_word(lists, &step[first].text, &run.words[0])
+                        && rest
+                            .iter()
+                            .zip(&run.words[1..])
+                            .all(|(word, want)| same_word(lists, &word.text, want))
+                });
+                if names_it && line.index != tail.line {
+                    found.push(Mention {
+                        line: line.index,
+                        start: first,
+                        len: 1,
+                        whole: true,
+                        made_from: false,
+                        other_name: false,
+                    });
+                }
+            }
+        }
+        found
+    }
+
     /// The lines one Step uses, given the lines earlier Steps already used
     /// and the section the Step before worked in, which this updates to the
     /// section this Step works in.
@@ -723,10 +993,16 @@ impl Recipe<'_> {
     ) -> Vec<usize> {
         let lists = self.lists;
         let sections_named = self.sections_named(step);
-        let mentions: Vec<Mention> = self
+        let found: Vec<Mention> = self
             .lines
             .iter()
             .flat_map(|line| mentions_of(lists, line, step))
+            .collect();
+        let mut mentions: Vec<Mention> = found
+            .iter()
+            .copied()
+            .filter(|mention| !mention.other_name || !self.is_a_verb(step, mention, &found))
+            .filter(|mention| !self.describes_another(step, mention, &found))
             .filter(|mention| !step[mention.start].not_going_in)
             .filter(|mention| !self.is_for(step, mention))
             .filter(|mention| !self.describes_what_is_made(step, mention))
@@ -736,6 +1012,7 @@ impl Recipe<'_> {
                 })
             })
             .collect();
+        mentions.extend(self.shared_tails(step, &mentions));
         // A part naming the dish still claims its words from a shorter
         // mention it overlaps, and only then is weighed itself. A whole name
         // gives way only to a longer whole name of one food: *the tomato
@@ -762,7 +1039,32 @@ impl Recipe<'_> {
             // Curry powder is no curry: a part of its name the title holds
             // names the dish (#357). The food itself in the title still
             // links, as chicken thighs do in a chicken dish (#439).
-            .filter(|(mention, by_the_dish)| !(*by_the_dish && mention.made_from))
+            // A choice line's option is only maybe made from the other, so
+            // *butter* of *butter or olive oil* still links in a dish named
+            // after garlic butter (#697).
+            .filter(|(mention, by_the_dish)| {
+                !(*by_the_dish && mention.made_from && !self.line(mention.line).choice)
+            })
+            .collect();
+        // *More chili oil* claims its words from the neutral oil's *oil*
+        // first, and only then goes (#697).
+        let kept: Vec<(Mention, bool)> = kept
+            .iter()
+            .copied()
+            .filter(|(mention, _)| !self.more_than_written(step, mention, &mentions, used_before))
+            .collect();
+        // *Sesame* inside *sesame paste* is the same place, and votes once
+        // for its section (#697).
+        let kept: Vec<(Mention, bool)> = kept
+            .iter()
+            .copied()
+            .filter(|(mention, _)| {
+                !kept.iter().any(|(longer, _)| {
+                    longer.line == mention.line
+                        && longer.len > mention.len
+                        && mention.within(longer)
+                })
+            })
             .collect();
 
         // Each place a food is named, and the lines it may mean there: the
@@ -838,8 +1140,13 @@ impl Recipe<'_> {
                 .filter(|&&(_, count)| Some(count) == most)
                 .map(|&(section, _)| section)
                 .collect();
-            if let [only] = leading[..] {
-                *own_section = Some(only);
+            match leading[..] {
+                [only] => *own_section = Some(only),
+                // With no section settled yet, the list's order does: the
+                // first Step's *oil* is the neutral oil at the top, not the
+                // sauce's sesame oil (#697).
+                [..] if own_section.is_none() => *own_section = leading.iter().min().copied(),
+                _ => {}
             }
         }
 
@@ -2349,6 +2656,475 @@ mod tests {
         assert_eq!(
             uses_in(Some("en"), &["Add the bloem."], &["tarwebloem"]),
             vec![Some(vec![])]
+        );
+    }
+
+    /// A recipe as it is stored: each line read by the real reader, so a line
+    /// offering a choice arrives with no Food, as it does from a save. A `#`
+    /// prefix makes a line a Section.
+    fn uses_as_read(
+        title: &str,
+        language: &str,
+        steps: &[&str],
+        lines: &[&str],
+    ) -> Vec<Option<Vec<usize>>> {
+        let steps: Vec<Value> = steps
+            .iter()
+            .map(|text| json!({ "kind": "step", "text": text }))
+            .collect();
+        let ingredients: Vec<Value> = lines
+            .iter()
+            .map(|line| match line.strip_prefix('#') {
+                Some(section) => json!({ "kind": "section", "text": section }),
+                None => json!({ "kind": "ingredient", "text": line }),
+            })
+            .collect();
+        let readings: Vec<Value> = lines
+            .iter()
+            .map(|line| match reading::read_line(line, language) {
+                Some(read) if !line.starts_with('#') => json!({
+                    "amount": read.amount,
+                    "unit": read.unit,
+                    "target": read.target,
+                    "lineage_id": null,
+                }),
+                _ => Value::Null,
+            })
+            .collect();
+        step_uses(&steps, &ingredients, &readings, Some(language), title)
+    }
+
+    /// The Sample Library's Dan Dan Noodles, as `sample-library/story.json`
+    /// writes it: the recipe #697 was filed from.
+    const DAN_DAN_LINES: &[&str] = &[
+        "2 tbsp neutral oil",
+        "2 scallions (sliced; white for cooking and green for garnish)",
+        "1/2 lbs ground pork or beef",
+        "2 tsp minced ginger",
+        "1/4 cup yacai or preserved mustard greens",
+        "2 tbsp shoaxing wine",
+        "1 tsp light soy sauce",
+        "1/2 tsp dark soy sauce",
+        "1 tsp sugar (optional)",
+        "2 bundles fresh wheat noodles",
+        "Choy sum",
+        "Crushed peanuts",
+        "#Sauce",
+        "3 tsp sesame paste",
+        "2 tbsp light soy sauce",
+        "1/2 tsp dark soy sauce",
+        "1 tbsp Chinese black vinegar",
+        "1 tsp sesame oil",
+        "5 tbsp Sichuan chili oil",
+        "1 tsp sugar",
+        "2 cloves garlic (grated)",
+    ];
+    const DAN_DAN_STEPS: &[&str] = &[
+        "In a pan, heat oil on medium heat and cook mince until the water has evaporated and the fat starts to render and sizzle (6-8 minutes).",
+        "Add ginger, white portion of scallions, and yacai. Sauté for a couple of minutes until fragrant.",
+        "Add shoaxing wine and once alcohol has evaporated, season with light and dark soy sauce and sugar. Set aside on low heat to keep warm.",
+        "Combine all sauce ingredients.",
+        "Boil noodles according to package instructions and cook choy sum in the last 45 seconds of boiling.",
+        "Combine the noodles with the sauce and don\u{2019}t be afraid to add a little bit of the water if the sauce is too thick. Plate with the choy sum, cooked mince, green portion of scallions, crushed peanuts, and more chili oil.",
+    ];
+
+    #[test]
+    fn the_dan_dan_noodles_link_the_mince_the_yacai_and_each_soy_sauce() {
+        assert_eq!(
+            uses_as_read("Dan Dan Noodles", "en", DAN_DAN_STEPS, DAN_DAN_LINES),
+            [
+                // The neutral oil alone: the sauce's oils are the sauce's.
+                step(&[0, 2]),
+                step(&[1, 3, 4]),
+                // *Light and dark soy sauce* is two lines.
+                step(&[5, 6, 7, 8]),
+                step(&[13, 14, 15, 16, 17, 18, 19, 20]),
+                step(&[9, 10]),
+                // *More chili oil* is beyond the sauce's five spoons.
+                step(&[1, 2, 9, 10, 11]),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_dan_dan_noodles_link_the_same_with_the_foods_the_sample_library_sets() {
+        // `sample-library/story.json` sets seven of these by hand, the two
+        // choices among them, and the reader reads the rest.
+        let targets = &[
+            "neutral oil",
+            "scallions",
+            "ground pork or beef",
+            "ginger",
+            "yacai or preserved mustard greens",
+            "Chinese Shaoxing wine",
+            "light soy sauce",
+            "dark soy sauce",
+            "sugar",
+            "fresh wheat noodles",
+            "Choy sum",
+            "peanuts",
+            "#Sauce",
+            "Chinese sesame paste",
+            "light soy sauce",
+            "dark soy sauce",
+            "Chinese black vinegar",
+            "sesame oil",
+            "chili oil",
+            "sugar",
+            "garlic",
+        ];
+        assert_eq!(
+            uses_titled("Dan Dan Noodles", Some("en"), DAN_DAN_STEPS, targets),
+            [
+                step(&[0, 2]),
+                step(&[1, 3, 4]),
+                // *Shoaxing wine* is the *Chinese Shaoxing wine* by its wine.
+                step(&[5, 6, 7, 8]),
+                step(&[13, 14, 15, 16, 17, 18, 19, 20]),
+                step(&[9, 10]),
+                step(&[1, 2, 9, 10, 11]),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_tomato_soup_links_the_coconut_milk_and_leaves_the_thyme_out() {
+        let lines = &[
+            "500-700 g cherry tomatoes",
+            "1 head of garlic",
+            "1 yellow onion",
+            "1/4 red chile",
+            "olive oil",
+            "fresh thyme and basil",
+            "salt",
+            "pepper",
+            "½ cup full fat canned coconut milk or heavy cream",
+            "⅔ cup vegetable stock",
+        ];
+        let steps = &[
+            "Preheat the oven at 250°C or 480°F.",
+            "Drizzle some oil onto a baking pan, add in the yellow onion, head of garlic (cut side down), fresh basil and thyme, red chile, cherry tomatoes, more olive oil on top, a sprinkle of salt and pepper. Bake everything until the tomatoes are slightly charred for 25 to 35 minutes.",
+            "Add the coconut milk, vegetable stock and all the baked ingredients, besides the thyme, in a blender and blend everything until smooth, for 3-5 minutes. Serve with a piece of toast or a grilled cheese sandwich.",
+        ];
+        assert_eq!(
+            uses_as_read("Tomato soup", "en", steps, lines),
+            [step(&[]), step(&[0, 1, 2, 3, 4, 5, 6, 7]), step(&[8, 9])]
+        );
+    }
+
+    #[test]
+    fn a_line_offering_a_choice_is_named_by_either_option() {
+        let lines = &["1 cup butter or oil", "soft or silken tofu", "flour"];
+        assert_eq!(
+            uses_as_read(
+                NO_DISH,
+                "en",
+                &["Melt the butter.", "Heat the oil.", "Press the tofu."],
+                lines
+            ),
+            [step(&[0]), step(&[0]), step(&[1])]
+        );
+        // The option *soft* is no tofu.
+        assert_eq!(
+            uses_as_read(NO_DISH, "en", &["Knead until soft, then rest it."], lines),
+            [step(&[])]
+        );
+        assert_eq!(
+            uses_as_read(NO_DISH, "en", &["Keep it soft."], lines),
+            [step(&[])]
+        );
+    }
+
+    #[test]
+    fn mince_is_the_ground_meat_and_never_the_verb() {
+        let lines = &["500 g ground beef", "2 cloves garlic"];
+        assert_eq!(
+            uses_as_read(
+                NO_DISH,
+                "en",
+                &[
+                    "Brown the mince.",
+                    "Mince the garlic.",
+                    "Finely mince garlic.",
+                    "Mince 2 cloves of garlic."
+                ],
+                lines
+            ),
+            [step(&[0]), step(&[1]), step(&[1]), step(&[1])]
+        );
+    }
+
+    #[test]
+    fn more_of_a_line_no_step_used_yet_is_that_line() {
+        assert_eq!(
+            uses(
+                &["Toss the noodles.", "Serve with more chili oil."],
+                &["noodles", "chili oil"]
+            ),
+            [step(&[0]), step(&[1])]
+        );
+        assert_eq!(
+            uses(
+                &["Toss in the chili oil.", "Serve with more chili oil."],
+                &["chili oil"]
+            ),
+            [step(&[0]), step(&[])]
+        );
+    }
+
+    #[test]
+    fn a_first_step_naming_a_word_two_sections_share_takes_the_first_section() {
+        assert_eq!(
+            uses(
+                &["Heat the oil.", "Combine all sauce ingredients."],
+                &["neutral oil", "#Sauce", "sesame oil"]
+            ),
+            [step(&[0]), step(&[2])]
+        );
+    }
+
+    #[test]
+    fn a_food_left_out_with_besides_or_except_is_not_going_in() {
+        assert_eq!(
+            uses(
+                &[
+                    "Blend it all, besides the thyme, with the stock.",
+                    "Add everything except the salt."
+                ],
+                &["thyme", "stock", "salt"]
+            ),
+            [step(&[1]), step(&[])]
+        );
+    }
+
+    #[test]
+    fn a_first_step_tie_takes_the_earliest_section_whatever_the_order_named() {
+        let lines = &["neutral oil", "#Sauce", "sesame paste", "sesame oil"];
+        // *Paste* gives the sauce the lead, whichever word comes first.
+        assert_eq!(
+            uses(&["Mix the sesame paste and oil."], lines),
+            [step(&[2, 3])]
+        );
+        assert_eq!(
+            uses(&["Warm the oil and sesame paste."], lines),
+            [step(&[2, 3])]
+        );
+        // A tie goes to the first section, though the sauce was named first.
+        let lines = &[
+            "#Noodles",
+            "noodles",
+            "peanut oil",
+            "#Sauce",
+            "sesame paste",
+            "sesame oil",
+        ];
+        assert_eq!(
+            uses(&["Add the sesame paste, the noodles and the oil."], lines),
+            [step(&[1, 2, 4])]
+        );
+    }
+
+    #[test]
+    fn a_shared_tail_left_out_is_not_going_in() {
+        assert_eq!(
+            uses(
+                &["Add everything besides light and dark soy sauce."],
+                &["light soy sauce", "dark soy sauce"]
+            ),
+            [step(&[])]
+        );
+    }
+
+    #[test]
+    fn a_shared_tail_names_both_lines() {
+        assert_eq!(
+            uses(
+                &["Season with light and dark soy sauce."],
+                &["light soy sauce", "dark soy sauce"]
+            ),
+            [step(&[0, 1])]
+        );
+    }
+
+    #[test]
+    fn a_food_stored_as_a_choice_is_named_by_either_option() {
+        // The Sample Library's Dan Dan Noodles holds these Foods as set.
+        assert_eq!(
+            uses_in(
+                Some("en"),
+                &["Cook mince.", "Add ginger and yacai."],
+                &[
+                    "ground pork or beef",
+                    "ginger",
+                    "yacai or preserved mustard greens"
+                ]
+            ),
+            [step(&[0]), step(&[1, 2])]
+        );
+    }
+
+    #[test]
+    fn a_one_word_option_before_a_made_food_gives_way_to_the_food_itself() {
+        let lines = &[
+            "1 cup butter or olive oil",
+            "4 chicken thighs",
+            "2 cups chicken or vegetable stock",
+        ];
+        assert_eq!(
+            uses_as_read(
+                NO_DISH,
+                "en",
+                &[
+                    "Melt the butter.",
+                    "Brown the chicken.",
+                    "Pour in the stock."
+                ],
+                lines
+            ),
+            [step(&[0]), step(&[1]), step(&[2])]
+        );
+    }
+
+    #[test]
+    fn a_choice_option_followed_by_anything_but_another_food_still_links() {
+        let pork = &["1/2 lbs ground pork or beef"];
+        assert_eq!(
+            uses_as_read(NO_DISH, "en", &["Brown the beef 5 minutes."], pork),
+            [step(&[0])]
+        );
+        assert_eq!(
+            uses_as_read(NO_DISH, "en", &["Fry the mince 5 minutes."], pork),
+            [step(&[0])]
+        );
+        assert_eq!(
+            uses_as_read(
+                NO_DISH,
+                "en",
+                &["Stir in the cream gently."],
+                &["½ cup coconut milk or heavy cream"]
+            ),
+            [step(&[0])]
+        );
+        assert_eq!(
+            uses_as_read(
+                NO_DISH,
+                "fr",
+                &["Ajoutez le beurre fondu."],
+                &["200 g de beurre ou d'huile"]
+            ),
+            [step(&[0])]
+        );
+        // Nor does a title holding it hide it.
+        assert_eq!(
+            uses_as_read(
+                "Garlic butter noodles",
+                "en",
+                &["Melt the butter."],
+                &["2 tbsp butter or olive oil"]
+            ),
+            [step(&[0])]
+        );
+    }
+
+    #[test]
+    fn mince_in_a_list_of_foods_is_the_meat() {
+        assert_eq!(
+            uses_as_read(
+                NO_DISH,
+                "en",
+                &["Add the onion, garlic, mince and tomato paste."],
+                &[
+                    "500 g ground beef",
+                    "1 onion",
+                    "2 cloves garlic",
+                    "1 tbsp tomato paste"
+                ]
+            ),
+            [step(&[0, 1, 2, 3])]
+        );
+        assert_eq!(
+            uses_as_read(
+                NO_DISH,
+                "en",
+                &["Plate with the noodles, mince, and peanuts."],
+                &["500 g ground beef", "noodles", "peanuts"]
+            ),
+            [step(&[0, 1, 2])]
+        );
+    }
+
+    #[test]
+    fn except_an_amount_adds_the_rest() {
+        assert_eq!(
+            uses(
+                &["Add everything except 2 tbsp of the butter."],
+                &["butter"]
+            ),
+            [step(&[0])]
+        );
+    }
+
+    #[test]
+    fn a_word_of_a_choice_describing_another_food_is_no_mention_of_it() {
+        let lines = &["1 tsp smoked or sweet paprika", "1 sausage"];
+        assert_eq!(
+            uses_as_read(NO_DISH, "en", &["Add the smoked sausage."], lines),
+            [step(&[1])]
+        );
+        assert_eq!(
+            uses_as_read(NO_DISH, "en", &["Stir in the smoked paprika."], lines),
+            [step(&[0])]
+        );
+    }
+
+    #[test]
+    fn an_option_of_a_choice_is_read_apart_from_the_other() {
+        // *Milk* is no more made from *water* than a dish named after it.
+        assert_eq!(
+            uses_as_read(
+                "Milk bread",
+                "en",
+                &["Warm the milk."],
+                &["1 cup milk or water"]
+            ),
+            [step(&[0])]
+        );
+    }
+
+    #[test]
+    fn more_after_a_count_is_the_rest_of_the_line() {
+        assert_eq!(
+            uses(
+                &["Beat in 2 eggs.", "Fold in the flour, then 2 more eggs."],
+                &["eggs", "flour"]
+            ),
+            [step(&[0]), step(&[0, 1])]
+        );
+        // French writes the food after *davantage de*.
+        assert_eq!(
+            uses_in(
+                Some("fr"),
+                &["Versez l'huile.", "Servez avec davantage d'huile."],
+                &["huile"]
+            ),
+            [step(&[0]), step(&[])]
+        );
+    }
+
+    #[test]
+    fn mince_opening_what_the_cook_does_is_the_verb() {
+        let lines = &["500 g ground beef", "1 onion"];
+        assert_eq!(
+            uses_as_read(NO_DISH, "en", &["Fry the mince 5 minutes."], lines),
+            [step(&[0])]
+        );
+        assert_eq!(
+            uses_as_read(NO_DISH, "en", &["Mince garlic, then add the onion."], lines),
+            [step(&[1])]
+        );
+        assert_eq!(
+            uses_as_read(NO_DISH, "en", &["Brown the onion and mince."], lines),
+            [step(&[0, 1])]
         );
     }
 }

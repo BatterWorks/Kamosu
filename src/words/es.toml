@@ -144,6 +144,12 @@ step_next_actions = [
 step_and = [
     "y",
 ]
+step_except = [
+    "excepto", "salvo",
+]
+step_more = [
+    "más",
+]
 
 # --- Reading a paste ---
 paste_ingredients = [
