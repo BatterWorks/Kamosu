@@ -506,6 +506,25 @@ word_lists! {
     /// guess at what else might appear.
     timer_more: Loose,
 
+    /// The words that open a clause about a wait already over, when what
+    /// follows says so (#698): *after*, *once*, *when*. See
+    /// `units::waited_already`.
+    past_wait_opens: Loose,
+
+    /// The words that say a wait is done, anywhere after one of
+    /// [`past_wait_opens`](Self::past_wait_opens): *once it **has** rested
+    /// for 2 hours*.
+    past_wait_done: Loose,
+
+    /// The word that joins a wait named as a thing to its number, right
+    /// before it: *after the total fermentation time **of** 90 minutes*.
+    past_wait_of: Loose,
+
+    /// The names of a wait as a thing, right before
+    /// [`past_wait_of`](Self::past_wait_of): *time*, *rest*, *rise*. *After a
+    /// total of 10 minutes* names none and keeps its timer.
+    past_wait_names: Loose,
+
     /// The half a cook says rather than writes as a number: *2 heures et
     /// demie*, *2 minutos y medio*. A phrase counts only directly against its
     /// duration: after the unit word (*2 minutes and a half*) or between the
@@ -620,6 +639,17 @@ word_lists! {
     /// chili oil*: a line an earlier Step already used, named after it, is
     /// not going in again (#697).
     step_more: Loose,
+
+    /// The words that make an amount in a Step one piece's share, *divide
+    /// into four pieces, **each** weighing about 280g*: more pizzas are more
+    /// pieces of the same weight, so the amount converts and never scales
+    /// (#698). Read before the amount in its clause, or straight after it,
+    /// *280g each*.
+    step_each: Loose,
+
+    /// What after a [`step_each`](Self::step_each) word makes it a time
+    /// rather than a piece: *add 120 ml each **time***, *cada **vez***.
+    step_each_time: Loose,
 
     /// What a Step may call a food by that its name never holds, each with
     /// the names it stands for: *the mince* is the *ground pork* (#697).
