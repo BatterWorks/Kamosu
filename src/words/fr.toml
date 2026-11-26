@@ -107,6 +107,9 @@ made_here = [
 amount_ranges = [
     "a", "ou",
 ]
+approximately = [
+    "environ", "env", "approx", "approximativement", "ca",
+]
 choices = [
     "ou", "et/ou",
 ]

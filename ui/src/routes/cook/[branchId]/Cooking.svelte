@@ -54,10 +54,13 @@
 	to step N*. Once the amounts are scaled THE SCALED AMOUNT LEADS: the Core's
 	subordinate line at full size, the recipe's own line small beneath it. At
 	the stove the number to measure is the one that matters, and the written
-	line is still there to say what it is a number of. A line that could not be
+	line is still there to say what the recipe asked for. A line that could not be
 	scaled keeps its own words and says it was not scaled — once a cook has
 	asked for twice the recipe, a line left alone is exactly what they need
-	telling. Kamosu scaled nothing here: every figure came from the Core.
+	telling. A line with no amount (olive oil, salt to taste) had nothing to
+	scale and says nothing (#680). The scaled line is the whole line at the new
+	amount, `1½ heads of garlic`, so it still says what it is an amount of.
+	Kamosu scaled nothing here: every figure came from the Core.
 -->
 <script lang="ts">
 	import { onDestroy, untrack } from 'svelte';
@@ -525,6 +528,8 @@
 					written,
 					changed,
 					beneath: changed || row.dropped ? null : (version?.measured.ingredients[from] ?? null),
+					/** Whether Kamosu read an amount on the line, so there was one to scale (#680). */
+					hasAmount: Boolean(version?.readings?.[from]?.amount),
 				},
 			];
 		}),
@@ -1349,7 +1354,8 @@
 												>
 													{amount.row.text}
 												</span>
-												{#if scaled && !amount.changed && !amount.row.dropped}
+												{#if scaled && amount.hasAmount && !amount.changed && !amount.row.dropped}
+													<!-- Only a line with an amount Kamosu could not scale says so (#680). -->
 													<span class="block text-step-reading text-cook-soft"
 														>{m.how_much_not_scaled()}</span
 													>

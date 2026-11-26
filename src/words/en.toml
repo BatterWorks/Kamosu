@@ -107,6 +107,9 @@ name_tails = [
 amount_ranges = [
     "to", "or",
 ]
+approximately = [
+    "about", "approx", "approximately", "around", "roughly", "ca", "circa",
+]
 choices = [
     "or", "and/or",
 ]
@@ -284,3 +287,17 @@ minute = [
 hour = [
     "hour", "hours", "hr", "hrs", "h",
 ]
+
+# --- The plurals no rule of `units::english_plural` reaches, each with its singular ---
+
+[irregular]
+"leaves" = "leaf"
+"loaves" = "loaf"
+"halves" = "half"
+"tomatoes" = "tomato"
+"potatoes" = "potato"
+"cookies" = "cookie"
+"pies" = "pie"
+"molasses" = "molasses"
+"fries" = "fries"
+"fish" = "fish"

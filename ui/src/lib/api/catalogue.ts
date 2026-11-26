@@ -3049,7 +3049,7 @@ export type TurnOffMeaningSearchOutput = {
 	state: "unasked" | "declined" | "accepted" | "on";
 };
 
-/** Read a Recipe: its Branch and every Version, oldest first. The Branch comes as it stands, with its whole chain of Versions. Each Version's `measured` lines are scaled to `wanted_yield` where one is given (null for the recipe as written), and otherwise to the Yield the caller's own In Progress Attempt is cooking to; `scaled_to` says which, or is null where the amounts are as written. Nothing is stored. */
+/** Read a Recipe: its Branch and every Version, oldest first. The Branch comes as it stands, with its whole chain of Versions. Each Version's `measured` lines are scaled to `wanted_yield` where one is given (null for the recipe as written), and otherwise to the Yield the caller's own In Progress Attempt is cooking to; `scaled_to` says which, or is null where the amounts are as written. Scaled, each Ingredient Line's `measured` slot is the whole line at the new amount (`1½ heads of garlic`); as written, it is the conversion alone. Nothing is stored. */
 export type GetRecipeInput = {
 	as_operator?: boolean;
 	branch_id: string;
@@ -22260,7 +22260,7 @@ export const CATALOGUE = [
 	},
 	{
 		"name": "get_recipe",
-		"summary": "Read a Recipe: its Branch and every Version, oldest first. The Branch comes as it stands, with its whole chain of Versions. Each Version's `measured` lines are scaled to `wanted_yield` where one is given (null for the recipe as written), and otherwise to the Yield the caller's own In Progress Attempt is cooking to; `scaled_to` says which, or is null where the amounts are as written. Nothing is stored.",
+		"summary": "Read a Recipe: its Branch and every Version, oldest first. The Branch comes as it stands, with its whole chain of Versions. Each Version's `measured` lines are scaled to `wanted_yield` where one is given (null for the recipe as written), and otherwise to the Yield the caller's own In Progress Attempt is cooking to; `scaled_to` says which, or is null where the amounts are as written. Scaled, each Ingredient Line's `measured` slot is the whole line at the new amount (`1½ heads of garlic`); as written, it is the conversion alone. Nothing is stored.",
 		"permission": "person",
 		"kind": "immediate",
 		"input_schema": {
@@ -39730,7 +39730,7 @@ export interface KamosuClient {
 	buildMeaningIndex(input?: BuildMeaningIndexInput): Promise<Answer<'build_meaning_index'>>;
 	/** Stop matching on meaning and throw the index away. Discards nothing that cannot be rebuilt — the index is derived from the recipes — and keeps both the acceptance, which is history, and the downloaded weights, so turning it back on is a rebuild rather than another download. */
 	turnOffMeaningSearch(input?: TurnOffMeaningSearchInput): Promise<Answer<'turn_off_meaning_search'>>;
-	/** Read a Recipe: its Branch and every Version, oldest first. The Branch comes as it stands, with its whole chain of Versions. Each Version's `measured` lines are scaled to `wanted_yield` where one is given (null for the recipe as written), and otherwise to the Yield the caller's own In Progress Attempt is cooking to; `scaled_to` says which, or is null where the amounts are as written. Nothing is stored. */
+	/** Read a Recipe: its Branch and every Version, oldest first. The Branch comes as it stands, with its whole chain of Versions. Each Version's `measured` lines are scaled to `wanted_yield` where one is given (null for the recipe as written), and otherwise to the Yield the caller's own In Progress Attempt is cooking to; `scaled_to` says which, or is null where the amounts are as written. Scaled, each Ingredient Line's `measured` slot is the whole line at the new amount (`1½ heads of garlic`); as written, it is the conversion alone. Nothing is stored. */
 	getRecipe(input: GetRecipeInput): Promise<Answer<'get_recipe'>>;
 	/** Read the Thread: every Branch of one Lineage you may see. It holds every Version of every Branch of the Lineage this Person can see, oldest first per Branch, with every Attempt hanging off it. An Attempt's eaten_version_id is the Version its rating is about: the As Cooked once that was kept as a Version, otherwise the Version it started from. Its person_name is who cooked, and mine says whether that is you. branch_id is only the entry point: any Branch of the Lineage answers the same Thread, and title is what the recipe is called on that Branch. */
 	getThread(input: GetThreadInput): Promise<Answer<'get_thread'>>;

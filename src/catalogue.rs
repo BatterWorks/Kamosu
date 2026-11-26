@@ -3645,7 +3645,10 @@ pub static OPERATIONS: LazyLock<Vec<Operation>> = LazyLock::new(|| {
                       the recipe as written), and otherwise to the Yield the \
                       caller's own In Progress Attempt is cooking to; \
                       `scaled_to` says which, or is null where the amounts are \
-                      as written. Nothing is stored.",
+                      as written. Scaled, each Ingredient Line's `measured` \
+                      slot is the whole line at the new amount (`1½ heads of \
+                      garlic`); as written, it is the conversion alone. \
+                      Nothing is stored.",
             permission: Permission::Person,
             kind: Kind::Immediate,
             write: false,
@@ -8347,9 +8350,11 @@ fn reading_list_schema() -> Value {
 /// already in this reader's measures at the Yield as written, where a line
 /// would only repeat what is above it.
 ///
-/// Rendered rather than structured, in the reader's Reading Language and
-/// always saying *about*, so an agent asked *how much flour in grams* gets the
-/// answer a cook would read (ADR 0001). It is computed, never stored: Reading
+/// Rendered rather than structured, in the reader's Reading Language, saying
+/// *about* where Kamosu rounded or converted, so an agent asked *how much
+/// flour in grams* gets the answer a cook would read (ADR 0001). At another
+/// Yield an Ingredient Line's slot is the whole line at the new amount, a
+/// range scaled at both ends (ADR 0060). It is computed, never stored: Reading
 /// Measures is a preference and changing it makes no Version.
 fn measured_schema() -> Value {
     json!({
