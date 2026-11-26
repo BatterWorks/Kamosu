@@ -509,10 +509,13 @@
 	 * the one subordinate line beneath it, in the recipe's own order — as this
 	 * cooking has them, which is as the recipe has them until somebody writes.
 	 *
-	 * A line whose words the cook changed loses its subordinate line, because
-	 * that reading describes the amount the recipe asked for and not the one
-	 * that went in. A line they dropped stays on screen, struck: it was in front
-	 * of them a moment ago and vanishing furniture is how a screen loses a cook.
+	 * A line whose words the cook changed takes its subordinate line from the
+	 * Attempt instead, where the Core read the cook's words and measured them
+	 * for the amount being cooked (#713). Until the Core has those words (the
+	 * cook is still typing, or the save has not landed) it has none, and the
+	 * line stands as written. A line they dropped stays on screen, struck: it
+	 * was in front of them a moment ago and vanishing furniture is how a screen
+	 * loses a cook.
 	 */
 	const amounts = $derived(
 		(outOfText?.uses ?? []).flatMap((from) => {
@@ -521,19 +524,45 @@
 			if (!row || row.kind !== 'ingredient') return [];
 			const written = content?.ingredients[from]?.text ?? row.text;
 			const changed = row.text.trim() !== written.trim();
+			const cooked = changed ? measuredAsCooked(row.text) : null;
 			return [
 				{
 					at,
 					row,
 					written,
 					changed,
-					beneath: changed || row.dropped ? null : (version?.measured.ingredients[from] ?? null),
+					beneath: row.dropped
+						? null
+						: changed
+							? (cooked?.measured ?? null)
+							: (version?.measured.ingredients[from] ?? null),
 					/** Whether Kamosu read an amount on the line, so there was one to scale (#680). */
-					hasAmount: Boolean(version?.readings?.[from]?.amount),
+					hasAmount: changed
+						? Boolean(cooked?.reading?.amount)
+						: Boolean(version?.readings?.[from]?.amount),
 				},
 			];
 		}),
 	);
+
+	/**
+	 * What the Core read and measured of one line of this cooking, found by its
+	 * words in the As Cooked the server holds (#713). By words, because a line
+	 * the cook dropped is not in what was sent, so the two lists' places differ.
+	 */
+	function measuredAsCooked(text: string) {
+		const held = attempt?.as_cooked;
+		// `?.`: a cooking the phone kept from before #713 carries neither.
+		if (!held?.measured || !held.readings) return null;
+		// Figures worked out for another amount than the one being cooked, as
+		// after a change of how much made with no network, say nothing (#77).
+		if (!caughtUp(held.measured.scaled_to ?? null, wanted, written)) return null;
+		const index = held.content.ingredients.findIndex(
+			(line) => line.kind === 'ingredient' && line.text.trim() === text.trim(),
+		);
+		if (index === -1) return null;
+		return { measured: held.measured.ingredients[index] ?? null, reading: held.readings[index] };
+	}
 
 	/**
 	 * Whether this cooking's words for a step are not the recipe's — rewritten,
@@ -585,11 +614,35 @@
 		const before = attempt;
 		attempt = optimistic;
 		try {
-			attempt = await kamosu.advanceAttempt({ attempt_id: optimistic.id, ...input });
+			attempt = keepingAsCooked(
+				await kamosu.advanceAttempt({ attempt_id: optimistic.id, ...input }),
+			);
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;
 			attempt = before;
 		}
+	}
+
+	/**
+	 * An answer from the Core, keeping the As Cooked this screen holds where it
+	 * carries the words on screen and the answer's does not (#713). `save` runs
+	 * alongside every move, so an answer that left before the save landed
+	 * carries the As Cooked as it was before, and would take the cook's measured
+	 * lines away with it. Otherwise the answer's is taken: after a save the
+	 * outbox held, the server's own is the one with the cook's words.
+	 */
+	function keepingAsCooked(answer: StartAttemptOutput): StartAttemptOutput {
+		const held = attempt?.as_cooked ?? null;
+		const words = (served: StartAttemptOutput['as_cooked']) =>
+			served ? served.content.ingredients.map((line) => line.text.trim()).join('\n') : null;
+		const onScreen =
+			asCooked && content && differs(content, asCooked)
+				? serialise(content, asCooked)
+						.ingredients.map((line) => line.text)
+						.join('\n')
+				: null;
+		const keepHeld = words(held) === onScreen && words(answer.as_cooked) !== onScreen;
+		return { ...answer, as_cooked: keepHeld ? held : answer.as_cooked };
 	}
 
 	/**
@@ -829,7 +882,14 @@
 			const answer = await kamosu.advanceAttempt({ attempt_id: before.id, cooking_yield: chosen });
 			// Only the Yield: the rest of the answer left before any step the
 			// cook may have taken since (`save` has the same rule).
-			if (attempt) attempt = { ...attempt, cooking_yield: answer.cooking_yield };
+			// And the As Cooked's lines measured at the new amount (#713), where
+			// it is still the one this screen holds.
+			if (attempt)
+				attempt = {
+					...attempt,
+					cooking_yield: answer.cooking_yield,
+					as_cooked: keepingAsCooked(answer).as_cooked,
+				};
 			howMuchFailed = false;
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;
@@ -1342,18 +1402,23 @@
 											class="min-w-0 flex-1 {isTicked(amount.row) ? 'opacity-50' : ''}
 												{amount.changed || amount.row.dropped ? 'border-l-2 border-cook-accent pl-2' : ''}"
 										>
-											{#if scaled && amount.beneath && !amount.changed && !amount.row.dropped}
+											{#if scaled && amount.beneath && !amount.row.dropped}
 												<!--
 													Scaled, so the scaled amount leads and the recipe's own
 													line sits beneath to say what it is an amount of (#109).
+													A line the cook changed leads with their words scaled,
+													since the editor holds the recipe's amounts (#713).
 												-->
 												<span
 													class="block font-display text-panel-figure font-semibold wide:leading-figure-far"
 												>
 													{amount.beneath}
 												</span>
+												<!-- The cook's own words are theirs, not the recipe's. -->
 												<span class="block text-step-reading text-cook-soft">
-													{m.cook_recipe_line({ line: amount.row.text })}
+													{amount.changed
+														? amount.row.text
+														: m.cook_recipe_line({ line: amount.row.text })}
 												</span>
 											{:else}
 												<span
@@ -1362,7 +1427,7 @@
 												>
 													{amount.row.text}
 												</span>
-												{#if scaled && amount.hasAmount && !amount.changed && !amount.row.dropped}
+												{#if scaled && amount.hasAmount && !amount.row.dropped}
 													<!-- Only a line with an amount Kamosu could not scale says so (#680). -->
 													<span class="block text-step-reading text-cook-soft"
 														>{m.how_much_not_scaled()}</span

@@ -652,6 +652,9 @@ describe('keeping a tweaked cooking as a Version, from the diary (#210)', () => 
 			],
 		},
 		promotion_declined: false,
+		// Not read here: what the cooking screen scales (#713).
+		readings: [],
+		measured: { ingredients: [], scaled_to: null },
 	};
 
 	/** Where the Core says the changes would be kept: the cook's own recipe. */

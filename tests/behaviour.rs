@@ -32717,6 +32717,134 @@ async fn the_diary_says_which_cookings_hold_changes_not_yet_kept() {
     assert_eq!(entry(&tweaked)["unkept"], json!(null));
 }
 
+/// A line the cook changed or added while cooking is scaled and converted for
+/// the amount being cooked, as the recipe's own lines are (#713). The cooking
+/// screen's editor says its fields hold the recipe's own amounts, so a cook
+/// writing `2 heads of garlic` there at 6 servings of a recipe for 4 means 3.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_line_changed_while_cooking_is_measured_for_the_amount_being_cooked() {
+    let app = support::spawn_app();
+    let (_person, key, _kitchen) = person_with_kitchen(&app, "Stéphane");
+    reads_in(&app, &key, "en", "us");
+
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "title": "Tomato soup",
+            "yield": { "amount": "4", "noun": "servings" },
+            "ingredients": [
+                { "kind": "ingredient", "text": "1 head of garlic" },
+                { "kind": "ingredient", "text": "1 yellow onion" },
+                { "kind": "ingredient", "text": "500-700 g cherry tomatoes" },
+            ],
+            "steps": [{ "kind": "step", "text": "Roast everything." }],
+        })
+        .to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap().to_string();
+    // The onion's Reading cleared by hand: a cooking leaving that line alone
+    // reads it no more than the recipe does.
+    let (status, cleared) = app.post_op(
+        "set_reading",
+        Some(&key),
+        &json!({ "branch_id": branch_id, "line_index": 1 }).to_string(),
+    );
+    assert_eq!(status, 200, "{cleared}");
+    let (_, started) = app.post_op(
+        "start_attempt",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let attempt_id = started["result"]["id"].as_str().unwrap().to_string();
+    let (status, advanced) = app.post_op(
+        "advance_attempt",
+        Some(&key),
+        &json!({
+            "attempt_id": attempt_id,
+            "cooking_yield": { "amount": "6", "noun": "servings" },
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{advanced}");
+    assert_eq!(
+        measured_ingredients(&app, &key, &branch_id),
+        json!(["1½ heads of garlic", null, "about 1¾-2¼ lb cherry tomatoes",]),
+    );
+
+    // Twice the garlic written over the recipe's line, `halved` added to the
+    // tomatoes with no amount changed, and a line of salt the recipe never had.
+    let (status, answered) = app.post_op(
+        "set_as_cooked",
+        Some(&key),
+        &json!({
+            "attempt_id": attempt_id,
+            "as_cooked": {
+                "title": "Tomato soup",
+                "yield": { "amount": "4", "noun": "servings" },
+                "ingredients": [
+                    { "kind": "ingredient", "text": "2 heads of garlic" },
+                    { "kind": "ingredient", "text": "1 yellow onion" },
+                    { "kind": "ingredient", "text": "500-700 g cherry tomatoes, halved" },
+                    { "kind": "ingredient", "text": "2 tsp salt" },
+                ],
+                "steps": [{ "kind": "step", "text": "Roast everything." }],
+            },
+        })
+        .to_string(),
+    );
+    assert_eq!(status, 200, "{answered}");
+    let lines = json!([
+        "3 heads of garlic",
+        null,
+        "about 1¾-2¼ lb cherry tomatoes, halved",
+        "1 tbsp salt",
+    ]);
+    assert_eq!(
+        answered["result"]["as_cooked"]["measured"]["ingredients"], lines,
+        "{answered}"
+    );
+    assert_eq!(
+        answered["result"]["as_cooked"]["measured"]["scaled_to"],
+        json!({ "amount": "6", "noun": "servings" }),
+    );
+    assert_eq!(answered["result"]["as_cooked"]["readings"][1], json!(null));
+
+    // And so it stays when the cooking is opened again.
+    let (_, lineage) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({ "branch_id": branch_id }).to_string(),
+    );
+    let (_, current) = app.post_op(
+        "get_current_attempt",
+        Some(&key),
+        &json!({ "lineage_id": lineage["result"]["lineage_id"] }).to_string(),
+    );
+    assert_eq!(
+        current["result"]["attempt"]["as_cooked"]["measured"]["ingredients"],
+        lines,
+    );
+
+    // Back to the Yield as written, a changed line gets the conversion beside
+    // it, as a recipe's own line does, and a line already in the cook's
+    // measures gets nothing.
+    let (_, as_written) = app.post_op(
+        "advance_attempt",
+        Some(&key),
+        &json!({ "attempt_id": attempt_id, "cooking_yield": null }).to_string(),
+    );
+    assert_eq!(
+        as_written["result"]["as_cooked"]["measured"]["ingredients"],
+        json!([null, null, "about 1-1½ lb", null]),
+        "{as_written}"
+    );
+    assert_eq!(
+        as_written["result"]["as_cooked"]["measured"]["scaled_to"],
+        json!(null)
+    );
+}
+
 /// A recipe with a variation: a cooking of the variation is kept onto the
 /// variation, though the diary opens the recipe at the Branch the shelf does.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

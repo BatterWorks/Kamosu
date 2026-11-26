@@ -108,6 +108,9 @@ const cooking = (): DeclinePromotionOutput => ({
 		content: CONTENT,
 		against: AGAINST,
 		promotion_declined: false,
+		// Not read here: what the cooking screen scales (#713).
+		readings: [],
+		measured: { ingredients: [], scaled_to: null },
 	},
 });
 
@@ -252,6 +255,9 @@ describe('promotion, on the recipe', () => {
 						content: CONTENT,
 						against: AGAINST,
 						promotion_declined: true,
+						// Not read here: what the cooking screen scales (#713).
+						readings: [],
+						measured: { ingredients: [], scaled_to: null },
 					},
 				}),
 			],

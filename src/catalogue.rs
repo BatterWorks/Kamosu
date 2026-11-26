@@ -8672,8 +8672,26 @@ fn as_cooked_schema() -> Value {
                 "required": ["ingredients", "steps"],
                 "additionalProperties": false,
             },
+            // Each of the As Cooked's Ingredient Lines as Kamosu reads it, and
+            // its one subordinate line for this cook at the Yield being
+            // cooked, in the shapes a Version's `readings` and
+            // `measured.ingredients` have (#713). Worked out on every read and
+            // stored nowhere: a line the cook rewrote or added is scaled as
+            // the recipe's own lines are.
+            "readings": reading_list_schema(),
+            "measured": {
+                "type": "object",
+                "properties": {
+                    "ingredients": { "type": "array", "items": { "type": ["string", "null"] } },
+                    // The Yield these were scaled to, or null where they are
+                    // at the Yield as written, as a Version's `scaled_to`.
+                    "scaled_to": wanted_yield_schema(),
+                },
+                "required": ["ingredients", "scaled_to"],
+                "additionalProperties": false,
+            },
         },
-        "required": ["version_id", "content", "against", "promotion_declined"],
+        "required": ["version_id", "content", "against", "promotion_declined", "readings", "measured"],
         "additionalProperties": false,
     })
 }
