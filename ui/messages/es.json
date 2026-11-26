@@ -139,7 +139,7 @@
   "cook_no_steps": "Esta receta no tiene pasos que seguir.",
   "cook_other_lines": "Los demás ingredientes",
   "cook_photo": "Hacer una foto",
-  "cook_photo_count": "Hacer una foto · {count} hechas",
+  "cook_photo_count": "Hacer una foto · ya {count}",
   "cook_photo_failed": "No se pudo guardar esa foto en este teléfono.",
   "cook_photo_failed_device": "No se pudo guardar esa foto en este dispositivo.",
   "cook_photo_kept": "Foto guardada con esta cocción.",

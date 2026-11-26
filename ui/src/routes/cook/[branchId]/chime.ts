@@ -20,9 +20,14 @@ export function chime(): Chime {
 	let context: AudioContext | undefined;
 	return {
 		ready() {
-			if (context || typeof AudioContext === 'undefined') return;
+			if (typeof AudioContext === 'undefined') return;
 			try {
-				context = new AudioContext();
+				context ??= new AudioContext();
+				// Again on every tap, not only the first: iOS lets a page sound
+				// from some taps and not others (a finger landing is not enough),
+				// and a context opened on the wrong one stayed silent (review of
+				// #681, unchecked on an iPhone).
+				if (context.state === 'suspended') void context.resume();
 			} catch {
 				context = undefined;
 			}

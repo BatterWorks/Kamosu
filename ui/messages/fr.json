@@ -139,7 +139,7 @@
   "cook_no_steps": "Cette recette n’a aucune étape à suivre.",
   "cook_other_lines": "Les autres ingrédients",
   "cook_photo": "Prendre une photo",
-  "cook_photo_count": "Prendre une photo · {count} prises",
+  "cook_photo_count": "Prendre une photo · déjà {count}",
   "cook_photo_failed": "Cette photo n'a pas pu être gardée sur ce téléphone.",
   "cook_photo_failed_device": "Cette photo n'a pas pu être gardée sur cet appareil.",
   "cook_photo_kept": "Photo gardée avec cette cuisson.",

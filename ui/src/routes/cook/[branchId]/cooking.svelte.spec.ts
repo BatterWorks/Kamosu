@@ -200,6 +200,13 @@ const cook = async (over: Answers = {}, { asked = false, room = 'phone' as Room 
 
 /** Longer than the screen's bounce guard on Back, Next and Finish. */
 const BOUNCE_PAST = 600;
+
+/** A moment passes before the cook's next tap, past the bounce guard again. */
+function later() {
+	const now = Date.now();
+	shifted?.mockRestore();
+	shifted = vi.spyOn(Date, 'now').mockImplementation(() => now + 2 * BOUNCE_PAST);
+}
 let shifted: MockInstance<() => number> | undefined;
 afterEach(() => {
 	shifted?.mockRestore();
@@ -522,6 +529,33 @@ describe('the cooking screen', () => {
 			await fireEvent.click(running);
 			expect(screen.getByRole('button', { name: 'Set a timer for 7 min' })).toBeInTheDocument();
 		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('stops the timer with the cooking it belongs to (review of #681)', async () => {
+		// Left running, it rang on over the screen that says the cooking is
+		// done, seven times over two minutes, with nothing there to stop it.
+		vi.useFakeTimers();
+		const buzz = vi.fn();
+		Object.defineProperty(navigator, 'vibrate', { configurable: true, value: buzz });
+		try {
+			await cook({
+				start_attempt: attempt({ current_step_index: 2 }),
+				advance_attempt: attempt({ current_step_index: 3 }),
+			});
+			await vi.waitFor(() => screen.getByRole('button', { name: 'Set a timer for 7 min' }));
+			await fireEvent.click(screen.getByRole('button', { name: 'Set a timer for 7 min' }));
+			await fireEvent.click(screen.getByRole('button', { name: 'Next step' }));
+			await vi.advanceTimersByTimeAsync(1_500);
+			await fireEvent.click(await screen.findByRole('button', { name: /finish cooking/i }));
+			await vi.waitFor(() =>
+				expect(screen.queryByRole('button', { name: 'Next step' })).toBeNull(),
+			);
+			await vi.advanceTimersByTimeAsync(10 * 60_000);
+			expect(buzz).not.toHaveBeenCalled();
+		} finally {
+			Reflect.deleteProperty(navigator, 'vibrate');
 			vi.useRealTimers();
 		}
 	});
@@ -1144,6 +1178,96 @@ describe('writing down what you actually cooked', () => {
 		expect(screen.getByRole('button', { name: /1 cup panko/i })).toBeInTheDocument();
 	});
 
+	it('keeps a rewritten line on its own Step, where the Core puts it ahead of the old one', async () => {
+		// The Core sets a line rewritten past recognition under the last line
+		// above it both versions share, ahead of the one it replaced (ADR 0019,
+		// `page` in src/pairing.rs): the stock comes back between the panko and
+		// the struck water. Taken as the panko's alone, the water's Step showed
+		// the water struck and nothing in its place. A line added after the
+		// panko comes back in the same place, so the stock is the panko's Step's
+		// too: which it was is the Core's to know.
+		const recipe = answers().get_recipe as GetRecipeOutput;
+		const content = recipe.versions[0].content;
+		type Row = NonNullable<StartAttemptOutput['as_cooked']>['against']['ingredients'][number];
+		const same = (mine: number, theirs: number, kind: string, text: string): Row => ({
+			from_branch_point: false,
+			kind,
+			mine: { index: mine, kind, text },
+			place: { mine, theirs },
+			state: 'same',
+			theirs: { index: theirs, kind, text },
+		});
+		await cook({
+			start_attempt: attempt({
+				current_step_index: 2,
+				as_cooked: {
+					against: {
+						ingredients: [
+							same(0, 0, 'section', 'For the cutlets'),
+							same(1, 1, 'ingredient', '2 chicken breasts'),
+							same(2, 2, 'ingredient', '1 cup panko'),
+							{
+								from_branch_point: false,
+								kind: 'ingredient',
+								mine: null,
+								place: { mine: 3, theirs: 3 },
+								state: 'only-theirs',
+								theirs: { index: 3, kind: 'ingredient', text: '1 l chicken stock' },
+							},
+							{
+								from_branch_point: false,
+								kind: 'ingredient',
+								mine: { index: 3, kind: 'ingredient', text: '800 ml water' },
+								place: { mine: 3, theirs: 3 },
+								state: 'only-mine',
+								theirs: null,
+							},
+							same(4, 4, 'ingredient', 'a pinch of salt'),
+						],
+						steps: content.steps.map((step, index) => same(index, index, step.kind, step.text)),
+					},
+					content: {
+						...content,
+						ingredients: [
+							INGREDIENTS[0],
+							INGREDIENTS[1],
+							INGREDIENTS[2],
+							{ kind: 'ingredient', text: '1 l chicken stock' },
+							INGREDIENTS[4],
+						],
+					},
+					promotion_declined: false,
+					version_id: 'v_2',
+					readings: [],
+					measured: { ingredients: [], scaled_to: null },
+				},
+			}),
+		});
+		expect(await exactly('Pour in the water and simmer for about 7 minutes.')).toBeInTheDocument();
+		expect(await exactly('1 l chicken stock')).toBeInTheDocument();
+		expect(screen.getByText('800 ml water')).toHaveClass('line-through');
+	});
+
+	it('gives a line added on a Step that uses none a field at once', async () => {
+		// At the foot of the list it followed the salt, a line another Step
+		// uses, and went into the folded list: no field, no caret.
+		await cook({
+			start_attempt: attempt({ current_step_index: 2 }),
+			get_recipe: withCooking({
+				steps: [
+					null,
+					{ uses: [1, 2], by_hand: false, timer_seconds: null },
+					{ uses: [], by_hand: false, timer_seconds: null },
+					{ uses: [4], by_hand: false, timer_seconds: null },
+				],
+			}),
+		});
+		await startWriting();
+		await fireEvent.click(await screen.findByRole('button', { name: /add a line/i }));
+		const added = await screen.findByPlaceholderText(/a line you added/i);
+		await vi.waitFor(() => expect(added).toHaveFocus());
+	});
+
 	it("puts an added line after the Step's own, and keeps it on the Step after Done", async () => {
 		const kamosu = await cook();
 		await startWriting();
@@ -1366,8 +1490,19 @@ describe('photographing the cooking (#77)', () => {
 		expect(
 			await screen.findByRole('heading', { name: 'How much are you making?' }),
 		).toBeInTheDocument();
+		later();
 		await fireEvent.click(screen.getByRole('button', { name: 'Start cooking' }));
 		expect(await exactly('Coat the chicken in panko.')).toBeInTheDocument();
+	});
+
+	it("takes no bounced second tap on Back from the first step as Start cooking's (review of #681)", async () => {
+		// The first tap opens the question, whose full-width button is then
+		// under the thumb: the bounce closed it again.
+		await cook();
+		const back = await screen.findByRole('button', { name: 'Back' });
+		await fireEvent.click(back);
+		await fireEvent.click(await screen.findByRole('button', { name: 'Start cooking' }));
+		expect(screen.getByRole('heading', { name: 'How much are you making?' })).toBeInTheDocument();
 	});
 
 	it("puts tonight's figures in a scaled Step's own words", async () => {

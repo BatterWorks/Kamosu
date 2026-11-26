@@ -6,7 +6,8 @@
 	something — which is the whole of why it is shaped like this:
 
 	  · the Step's text is the LARGEST TYPE IN THE APP (`text-step`, 26px), and
-	    it is the only thing on screen that scrolls;
+	    it scrolls with its amounts as one, under a fade while more follows
+	    (#681);
 	  · above it, ONLY the Ingredients this step uses. Not the list, not a
 	    filter over the list — the two or three lines that matter now, on the
 	    room's own ground with a hairline under them. A step that adds nothing
@@ -204,7 +205,7 @@
 	let unsaved = $state(false);
 	let writeFailed = $state(false);
 	let discarding = $state(false);
-	/** The two quiet controls of the top row are open under the ⋯ (#222). */
+	/** The rarely needed controls are open under More (#222, #681). */
 	let more = $state(false);
 	/** The cook tapped *Went wrong* and is reading what it means (#119). */
 	let readingMistake = $state(false);
@@ -284,23 +285,30 @@
 
 	function measureBody() {
 		const element = bodyEl;
-		// A few pixels of slack: sub-pixel line heights make a body that fits
-		// report a pixel of overflow, and a fade over one that fits greys out its
-		// last line for nothing.
-		const over = element
-			? element.scrollHeight - element.scrollTop - element.clientHeight > 8
-			: false;
-		moreBelow = over;
-		// A phone on its side scrolls the amounts and the Step apart, inside a
-		// body that never runs past, so nothing gives way there.
-		if (!element || !over) return;
+		if (!element) return;
+		// More below where the cook has scrolled to, which the fade says. A few
+		// pixels of slack: sub-pixel line heights make a body that fits report a
+		// pixel of overflow, and a fade over one that fits greys out its last
+		// line for nothing. A phone on its side scrolls the Step in a column of
+		// its own, inside a body that never runs past, and the fade stood over
+		// nothing there (review of #681).
+		const below = (box: HTMLElement) => box.scrollHeight - box.scrollTop - box.clientHeight > 8;
+		const column =
+			stepBoxEl && getComputedStyle(stepBoxEl).overflowY === 'auto' ? stepBoxEl : undefined;
+		moreBelow = below(element) || (column !== undefined && below(column));
+		// What gives way is measured as if the body were not scrolled, so a
+		// scroll never moves the layout: measured partway down, it settled a
+		// rung low and then climbed a rung a scroll (review of #681). Nothing
+		// gives way on a phone on its side, whose body never runs past.
+		if (element.scrollHeight - element.clientHeight <= 8) return;
+		const scrolled = element.scrollTop;
 		// The Step's own words past the foot, which the amounts give way for,
 		// or only the next Step's under them, which takes fewer lines: the
 		// amounts went to their last rung for a preview (round 4 of #681's
 		// climb). Words with no size were not laid out, and count as past.
 		const foot = element.getBoundingClientRect().bottom;
 		const words = stepWordsEl?.getBoundingClientRect();
-		const stepPast = !words || words.height === 0 || words.bottom - foot > 8;
+		const stepPast = !words || words.height === 0 || words.bottom + scrolled - foot > 8;
 		// One change a measure, each kept for the rest of the Step, so the
 		// layout settles in a few moves and never chases itself.
 		untrack(() => {
@@ -311,7 +319,9 @@
 				const words = nextEl?.querySelector('p');
 				const line = words ? parseFloat(getComputedStyle(words).lineHeight) : 0;
 				const fits =
-					words && line > 0 ? Math.floor((foot - words.getBoundingClientRect().top) / line) : 0;
+					words && line > 0
+						? Math.floor((foot - words.getBoundingClientRect().top - scrolled) / line)
+						: 0;
 				nextUnderLines = Math.max(0, Math.min(nextUnderLines - 1, fits));
 			}
 		});
@@ -761,26 +771,31 @@
 	);
 
 	/**
-	 * The amounts for this step: the written Ingredient Line at full size and
-	 * the one subordinate line beneath it, in the recipe's own order — as this
-	 * cooking has them, which is as the recipe has them until somebody writes.
-	 *
-	 * A line whose words the cook changed takes its subordinate line from the
-	 * Attempt instead, where the Core read the cook's words and measured them
-	 * for the amount being cooked (#713). Until the Core has those words (the
-	 * cook is still typing, or the save has not landed) it has none, and the
-	 * line stands as written. A line they dropped stays on screen, struck: it
-	 * was in front of them a moment ago and vanishing furniture is how a screen
-	 * loses a cook.
+	 * Where the lines the cook wrote that go with the line at `at` sit:
+	 * straight after it, where Add a line puts them, and straight before it
+	 * where it is a line the cook dropped. The Core sets a line rewritten past
+	 * recognition ahead of the one it replaced, under the last line above that
+	 * both versions share (ADR 0019, `page` in `src/pairing.rs`): taken as the
+	 * line above's alone, it came back on the Step before its own (review of
+	 * #681). A line added after that line above comes back in the same place,
+	 * and which of the two it was is the Core's to know, not this screen's, so
+	 * such a line goes with both, and neither Step is without it.
 	 */
-	/** Where the lines the cook wrote straight after the line at `at` sit. */
 	function followers(rows: Line[], at: number): number[] {
-		const found = [];
-		for (let next = at + 1; next < rows.length; next++) {
-			if (rows[next].from !== null || rows[next].kind !== 'ingredient') break;
-			found.push(next);
-		}
-		return found;
+		const written = (index: number) =>
+			rows[index]?.from === null && rows[index]?.kind === 'ingredient';
+		const before: number[] = [];
+		if (rows[at]?.dropped)
+			for (let previous = at - 1; written(previous); previous--) before.unshift(previous);
+		const after: number[] = [];
+		for (let next = at + 1; written(next); next++) after.push(next);
+		return [...before, ...after];
+	}
+
+	/** Each line once, where two of a Step's lines both claim a line the cook wrote. */
+	function once<T extends { at: number }>(list: T[]): T[] {
+		const seen = new Set<number>();
+		return list.filter((each) => !seen.has(each.at) && Boolean(seen.add(each.at)));
 	}
 
 	/**
@@ -797,62 +812,77 @@
 		);
 	});
 
+	/**
+	 * The amounts for this step: the written Ingredient Line at full size and
+	 * the one subordinate line beneath it, in the recipe's own order — as this
+	 * cooking has them, which is as the recipe has them until somebody writes.
+	 *
+	 * A line whose words the cook changed takes its subordinate line from the
+	 * Attempt instead, where the Core read the cook's words and measured them
+	 * for the amount being cooked (#713). Until the Core has those words (the
+	 * cook is still typing, or the save has not landed) it has none, and the
+	 * line stands as written. A line they dropped stays on screen, struck: it
+	 * was in front of them a moment ago and vanishing furniture is how a screen
+	 * loses a cook.
+	 */
 	const amounts = $derived(
-		(outOfText?.uses ?? []).flatMap((from) => {
-			const rows = asCooked?.ingredients ?? [];
-			const at = rows.findIndex((row) => row.from === from);
-			const row = rows[at];
-			if (!row || row.kind !== 'ingredient') return [];
-			const written: string | null = content?.ingredients[from]?.text ?? row.text;
-			const changed = row.text.trim() !== written.trim();
-			const cooked = changed ? measuredAsCooked(row.text) : null;
-			const own = {
-				at,
-				row,
-				written,
-				changed,
-				beneath: row.dropped
-					? null
-					: changed
-						? (cooked?.measured ?? null)
-						: (version?.measured.ingredients[from] ?? null),
-				/** Whether Kamosu read an amount on the line, so there was one to scale (#680). */
-				hasAmount: changed
-					? Boolean(cooked?.reading?.amount)
-					: Boolean(version?.readings?.[from]?.amount),
-				/**
-				 * What the recipe asked for, struck under a line the cook changed: at
-				 * the amount being cooked where it is scaled, so the two lines say
-				 * the same amount of the same thing (#713 with round 5 of #681's
-				 * climb), and as written where it is not.
-				 */
-				asked: scaled ? (version?.measured.ingredients[from] ?? written) : written,
-			};
-			// The lines the cook wrote straight after this one are drawn under it.
-			// A line rewritten past recognition comes back from the Core as this
-			// one dropped and a new one added after it (ADR 0019: a removal and
-			// an addition, the old struck beside the new), and Add a line puts
-			// its line after the Step's last one, so the Core's own order keeps
-			// each on its Step. Both were gone from the Step once the cooking was
-			// opened again (rounds 2 and 3 of #681's climb). Each is measured for
-			// the amount being cooked as a changed line is (#713).
-			const after = followers(rows, at)
-				.filter((next) => writing || rows[next].text.trim() !== '')
-				.map((next) => {
-					const added = measuredAsCooked(rows[next].text);
-					return {
-						...own,
-						at: next,
-						row: rows[next],
-						written: null,
-						changed: true,
-						beneath: added?.measured ?? null,
-						hasAmount: Boolean(added?.reading?.amount),
-						asked: null,
-					};
-				});
-			return [own, ...after];
-		}),
+		once(
+			(outOfText?.uses ?? []).flatMap((from) => {
+				const rows = asCooked?.ingredients ?? [];
+				const at = rows.findIndex((row) => row.from === from);
+				const row = rows[at];
+				if (!row || row.kind !== 'ingredient') return [];
+				const written: string | null = content?.ingredients[from]?.text ?? row.text;
+				const changed = row.text.trim() !== written.trim();
+				const cooked = changed ? measuredAsCooked(row.text) : null;
+				const own = {
+					at,
+					row,
+					written,
+					changed,
+					beneath: row.dropped
+						? null
+						: changed
+							? (cooked?.measured ?? null)
+							: (version?.measured.ingredients[from] ?? null),
+					/** Whether Kamosu read an amount on the line, so there was one to scale (#680). */
+					hasAmount: changed
+						? Boolean(cooked?.reading?.amount)
+						: Boolean(version?.readings?.[from]?.amount),
+					/**
+					 * What the recipe asked for, struck under a line the cook changed: at
+					 * the amount being cooked where it is scaled, so the two lines say
+					 * the same amount of the same thing (#713 with round 5 of #681's
+					 * climb), and as written where it is not.
+					 */
+					asked: scaled ? (version?.measured.ingredients[from] ?? written) : written,
+				};
+				// The lines the cook wrote straight after this one are drawn under it.
+				// A line rewritten past recognition comes back from the Core as this
+				// one dropped and a new one added after it (ADR 0019: a removal and
+				// an addition, the old struck beside the new), and Add a line puts
+				// its line after the Step's last one, so the Core's own order keeps
+				// each on its Step. Both were gone from the Step once the cooking was
+				// opened again (rounds 2 and 3 of #681's climb). Each is measured for
+				// the amount being cooked as a changed line is (#713).
+				const after = followers(rows, at)
+					.filter((next) => writing || rows[next].text.trim() !== '')
+					.map((next) => {
+						const added = measuredAsCooked(rows[next].text);
+						return {
+							...own,
+							at: next,
+							row: rows[next],
+							written: null,
+							changed: true,
+							beneath: added?.measured ?? null,
+							hasAmount: Boolean(added?.reading?.amount),
+							asked: null,
+						};
+					});
+				return [own, ...after];
+			}),
+		),
 	);
 
 	/**
@@ -904,7 +934,9 @@
 				{ at, row, written, changed: written !== null && row.text.trim() !== written.trim() },
 			];
 		}),
-	); /**
+	);
+
+	/**
 	 * The lines the cook added while cooking, drawn under this Step's own with
 	 * Add a line, where they were added, rather than at the foot of a list
 	 * opened first (round 1 of #681's climb: a grader found Add a line only after
@@ -1078,9 +1110,12 @@
 	async function addLine() {
 		if (!asCooked) return;
 		// After this Step's last line, so it is this Step's when the cooking is
-		// opened again; at the foot of the list on a Step that uses none.
+		// opened again. On a Step that uses none, at the head of the list, where
+		// it follows no line: at the foot it followed a line another Step uses,
+		// and went into the folded list with no field to type in (review of
+		// #681).
 		const last = Math.max(-1, ...amounts.map((amount) => amount.at));
-		const at = last >= 0 ? last + 1 : asCooked.ingredients.length;
+		const at = last >= 0 ? last + 1 : 0;
 		asCooked.ingredients.splice(at, 0, {
 			kind: 'ingredient',
 			text: '',
@@ -1184,6 +1219,11 @@
 		try {
 			await kamosu.deleteAttempt({ attempt_id: attempt.id });
 			forgetDraft(attempt.id);
+			// The timer goes with the cooking: it rang on over the screen that
+			// says it was thrown away, with nothing there to stop it (review of
+			// #681).
+			countdown.clear();
+			clearInterval(ringing);
 			keepTimer(attempt.id, null);
 			discarding = false;
 			discarded = true;
@@ -1240,6 +1280,8 @@
 		await save();
 		try {
 			await kamosu.finishAttempt({ attempt_id: attempt.id });
+			countdown.clear();
+			clearInterval(ringing);
 			keepTimer(attempt.id, null);
 			finished = true;
 		} catch (error) {
@@ -1374,6 +1416,7 @@
 
 <svelte:window
 	onpointerdown={readySound}
+	onpointerup={readySound}
 	onkeydown={(event) => {
 		if (event.key === 'Escape' && more) more = false;
 	}}
@@ -1518,9 +1561,7 @@
 					}}
 				>
 					<i class="h-2 w-2 shrink-0 rounded-sm bg-support" aria-hidden="true"></i>
-					<!-- Its dot alone beside an amount, which left the way out 10px wide
-					     (round 4 of #681's climb). -->
-					<span class={choseAmount ? 'sr-only' : ''}>{m.cook_went_wrong()}</span>
+					{m.cook_went_wrong()}
 				</button>
 			{/if}
 			<!--
@@ -1529,14 +1570,17 @@
 				(#109). On the recipe's row, since it says how much of the recipe:
 				on a row of its own above the Step it took a phone's row on every
 				Step without a timer (round 4 of #681's climb). Away from the
-				timer, so a thumb aiming at one cannot catch the other. With no
-				outline, so it reads as part of the recipe's name rather than as
-				one of the Step's tools (round 4).
+				timer, so a thumb aiming at one cannot catch the other. Its outline
+				is the hairline's, fainter than the Step's own tools', so it reads
+				with the recipe's name (round 4), and still as a control (U8).
+				It stands aside while Went wrong shows, whose two words and
+				mark ADR 0011 records: the row has no room for both, and How much
+				is still under More.
 			-->
-			{#if choseAmount && !writing && !asking}
+			{#if choseAmount && !writing && !asking && !wentWrong}
 				<button
 					type="button"
-					class="quiet-button shrink-0 border-transparent"
+					class="quiet-button shrink-0 border-cook-rule"
 					aria-label={m.cook_how_much_is({ amount: howMuch })}
 					onclick={() => {
 						atStart = false;
@@ -2273,6 +2317,7 @@
 						-->
 						<div
 							bind:this={stepBoxEl}
+							onscroll={measureBody}
 							class="flex flex-1 flex-col items-start sideways:mt-0 sideways:min-h-0 sideways:overflow-y-auto sideways:border-t-0 sideways:border-l sideways:border-cook-rule sideways:pt-0 sideways:pl-[20px]
 								{amounts.length > 0 || writing
 								? `border-t border-cook-rule wide:mt-4 wide:pt-6 ${fit >= 5 ? 'mt-2 pt-2' : 'mt-3 pt-3'}`
@@ -2393,7 +2438,7 @@
 				-->
 				{#if moreBelow}
 					<div
-						class="pointer-events-none absolute inset-x-0 bottom-0 step-fade"
+						class="pointer-events-none absolute inset-x-0 bottom-0 step-fade sideways:left-[calc((100%-16px)*0.4+16px)]"
 						aria-hidden="true"
 					></div>
 				{/if}
@@ -2429,6 +2474,10 @@
 					type="button"
 					class="main-button flex-1 wide:min-h-[var(--cook-foot-far)] wide:text-foot-far"
 					onclick={() => {
+						// Back on the first Step put this button under the thumb: a
+						// bounced second tap closed the question it had just opened
+						// (review of #681).
+						if (Date.now() - movedAt < 350) return;
 						// Next takes this button's place: a double tap's second half
 						// must not skip the first Step (round 2 of #681's climb).
 						movedAt = Date.now();

@@ -12,8 +12,8 @@
 	which is why it is drawn from `/api/photographs` directly, as the hero is.
 
 	At the stove it is a button with a word beside a small copy of the picture,
-	on the row that says which Step this is (round 4 of #681's climb, by
-	Aurélien's decision of 26 November 2026, which reopened K3). The square in
+	on the row that says which Step this is (round 4 of #681's climb, chosen
+	on #681 on 26 November 2026, which reopened K3). The square in
 	the Step's words narrowed its first lines, and both graders found a small
 	picture with no word a poor clue that it opens.
 -->
