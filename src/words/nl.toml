@@ -171,6 +171,10 @@ degrees = ["graden", "graad"]
 timer_ranges = ["a", "tot", "of"]
 # `tal` is the Flemish `een 10tal minuten`.
 timer_more = ["extra", "tal"]
+past_wait_opens = ["na"]
+past_wait_done = []
+past_wait_of = ["van"]
+past_wait_names = ["tijd", "rijstijd", "rusttijd", "rijs", "rust"]
 spoken_half = ["en een half"]
 spoken_quarter = ["en een kwartier"]
 timer_joins = [
@@ -198,6 +202,10 @@ step_next_actions = [
     "bestrooi", "schep", "leg", "serveer", "garneer", "druppel", "verdeel",
 ]
 step_and = ["en"]
+step_except = ["behalve"]
+step_more = ["meer"]
+step_each = ["elk", "elke"]
+step_each_time = ["keer", "maal"]
 
 # --- Reading a paste ---
 paste_ingredients = ["ingrediënten", "benodigdheden"]

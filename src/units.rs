@@ -713,7 +713,7 @@ pub fn scaled_line_in(
     cup_weight_grams: Option<f64>,
 ) -> Option<String> {
     let amount = amount?;
-    let figure = figure_in(
+    let mut figure = figure_in(
         written_in_language,
         amount,
         unit,
@@ -735,7 +735,7 @@ pub fn scaled_line_in(
         }
     };
 
-    let Some(at) = amount_at(text, amount) else {
+    let Some(at) = amount_at(text, amount, unit) else {
         let said = match target {
             Some(target) => format!("{number} {} {target}", figure.unit_word(language)),
             None => format!("{number} {}", figure.unit_word(language)),
@@ -758,6 +758,14 @@ pub fn scaled_line_in(
                 // A Unit of the closed set is counted only where the line
                 // spells its name out: `tbsp` has no plural, `tablespoon` has.
                 recount(unit)
+            } else if english
+                && !now_plural
+                && let Some(one) = unit.strip_suffix('s')
+                && let Some(source) = figure.source
+                && one.eq_ignore_ascii_case(&display(source, language, false))
+            {
+                // `1/2 lbs` doubled is `1 lb` (#698).
+                one.to_string()
             } else {
                 unit.to_string()
             };
@@ -774,9 +782,32 @@ pub fn scaled_line_in(
         unit_said = figure.unit_word(language);
     }
 
-    // A measure the line restates, `(240 ml)` or `/ 0.9-1 lb`, would now say
-    // a different amount from the one just scaled, so it goes. Only after a
-    // Unit of the closed set: `1 can (14 oz)` is the size of the can.
+    // A measure the line restates in the other system, `(2t)` or `or 2 tsp`,
+    // goes, and where it is the reader's own measure it is the one scaled
+    // (#698): an American is handed teaspoons of yeast, not ounces.
+    let mut number = number;
+    if let Some(source) = figure.source
+        && let Some(restated) = restated_after(&rest, written_in_language, source, false)
+    {
+        rest.replace_range(..restated.end, "");
+        if restated.is_readers_own(measures)
+            && let Some(own) = figure_in(
+                written_in_language,
+                &restated.amount,
+                Some(&restated.unit),
+                scale,
+                measures,
+                cup_weight_grams,
+            )
+        {
+            figure = own;
+            number = figure.number(language);
+            unit_said = figure.unit_word(language);
+        }
+    }
+    // Any other measure the line restates, `(240 ml)` or `/ 0.9-1 lb`, would
+    // now say a different amount from the one just scaled, so it goes. Only
+    // after a Unit of the closed set: `1 can (14 oz)` is the size of the can.
     if figure.source.is_some() {
         rest = without_restated_measures(&rest, written_in_language);
     }
@@ -813,7 +844,7 @@ pub fn scaled_line_in(
 ///
 /// A number inside brackets is no candidate: the line reader reads none
 /// there, so `(serves 4) 4 eggs` scales the eggs.
-fn amount_at(text: &str, amount: &str) -> Option<usize> {
+fn amount_at(text: &str, amount: &str, unit: Option<&str>) -> Option<usize> {
     text.match_indices(amount).map(|(at, _)| at).find(|&at| {
         let depth: i32 = text[..at]
             .chars()
@@ -827,11 +858,16 @@ fn amount_at(text: &str, amount: &str) -> Option<usize> {
             return false;
         }
         let before = text[..at].chars().next_back();
-        let after = text[at + amount.len()..].chars().next();
+        let rest = &text[at + amount.len()..];
+        let after = rest.chars().next();
+        // `400g`: the Unit written against the amount ends it as a space would.
+        let glued = unit
+            .is_some_and(|unit| unit.starts_with(char::is_alphabetic) && rest.starts_with(unit));
         !before.is_some_and(|c| c.is_alphanumeric() || c == '.' || c == ',')
-            && !after.is_some_and(|c| {
-                c.is_alphanumeric() || FRACTIONS.iter().any(|(glyph, _)| *glyph == c)
-            })
+            && (glued
+                || !after.is_some_and(|c| {
+                    c.is_alphanumeric() || FRACTIONS.iter().any(|(glyph, _)| *glyph == c)
+                }))
     })
 }
 
@@ -915,22 +951,145 @@ fn word_spans(text: &str) -> Vec<(usize, &str)> {
 }
 
 /// How many leading words are an amount and a Unit of the closed set,
-/// `240 ml` or `0.9-1 lb`, or nothing where they are not.
+/// `240 ml`, `0.9-1 lb` or `1 2/3c`, or nothing where they are not.
 fn measure_words(language: &str, words: &[&str]) -> Option<usize> {
+    (1..=words.len().min(5))
+        .rev()
+        .find(|&taken| split_measure(language, &words[..taken].join(" ")).is_some())
+}
+
+/// **A measure, as its amount and its Unit**, `240 ml` or `0.9-1 lb`, or
+/// the two written against each other, `2t` and `1 2/3c` (#698). Each is a
+/// slice of `text`. Nothing where `text` is anything more or less than an
+/// amount, single or a range, and a Unit of the closed set.
+fn split_measure<'a>(language: &str, text: &'a str) -> Option<(&'a str, &'a str)> {
     let lists = words::of(language);
-    (1..=words.len().min(3)).rev().find_map(|amount| {
-        let figure = words[..amount].join(" ");
-        if parse_amount(&figure).is_none() && parse_range_in(language, &figure).is_none() {
+    let text = text.trim().trim_end_matches([',', ';']);
+    text.char_indices().skip(1).find_map(|(at, character)| {
+        // The Unit starts with a letter, so the amount before it is whole.
+        if !character.is_alphabetic() && character != '#' {
             return None;
         }
-        (1..=(words.len() - amount).min(2)).rev().find_map(|unit| {
-            let named = words[amount..amount + unit]
-                .join(" ")
-                .trim_end_matches([',', ';', '.'])
-                .to_string();
-            lists.unit(&named).map(|_| amount + unit)
-        })
+        let amount = text[..at].trim();
+        let unit = text[at..].trim();
+        let reads = parse_amount(amount).is_some() || parse_range_in(language, amount).is_some();
+        (reads && lists.unit(unit).is_some()).then_some((amount, unit))
     })
+}
+
+/// **A measure straight after an amount's Unit that says the amount again
+/// in the other system** (#698): ` (1 2/3c)`, ` (about 1½ cups)`, and, where
+/// `brackets_only` is false, ` / 0.9-1 lb`, ` or 2 tsp` and the bare
+/// ` 6Tbsp` of *100g 6Tbsp tomato paste*.
+///
+/// Only the other system counts. In the same one a second measure adds to
+/// the first, `1 lb 8 oz`, or says it again with no news for anybody.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Restated {
+    /// Where it ends in the text after the Unit, in bytes. It starts at the
+    /// start of that text, with the space before it.
+    pub end: usize,
+    pub amount: String,
+    pub unit: String,
+    /// The system its Unit is in, never the amount's own.
+    pub system: System,
+}
+
+/// [`Restated`] in `rest`, the text after an amount written in `source`.
+pub fn restated_after(
+    rest: &str,
+    language: &str,
+    source: &Unit,
+    brackets_only: bool,
+) -> Option<Restated> {
+    let lists = words::of(language);
+    let trimmed = rest.trim_start();
+    let offset = |inner: &str| inner.as_ptr() as usize - rest.as_ptr() as usize;
+    let (amount, unit, end) = if let Some(inside) = trimmed.strip_prefix('(') {
+        let close = inside.find(')')?;
+        let inner = inside[..close].trim();
+        let figure = match inner.split_whitespace().next() {
+            Some(word) if lists.approximately.has(word) => inner[word.len()..].trim(),
+            _ => inner,
+        };
+        let (amount, unit) = split_measure(language, figure)?;
+        (amount, unit, offset(inside) + close + 1)
+    } else if brackets_only {
+        return None;
+    } else {
+        let after = match trimmed.strip_prefix('/') {
+            Some(after) => after,
+            None => match trimmed.split_whitespace().next() {
+                Some(word) if lists.choices.has(word) => &trimmed[word.len()..],
+                _ => trimmed,
+            },
+        };
+        let words = word_spans(after);
+        let texts: Vec<&str> = words.iter().map(|(_, word)| *word).collect();
+        let taken = measure_words(language, &texts)?;
+        let (from, _) = words[0];
+        let (last, word) = words[taken - 1];
+        let (amount, unit) = split_measure(language, &after[from..last + word.len()])?;
+        (amount, unit, offset(unit) + unit.len())
+    };
+    let restated = lists.unit(unit)?;
+    (restated.system != source.system).then(|| Restated {
+        end,
+        amount: amount.to_string(),
+        unit: unit.to_string(),
+        system: restated.system,
+    })
+}
+
+impl Restated {
+    /// Whether a reader in `measures` is better given this than the amount
+    /// it restates: it is in their own system, and so, being in the other
+    /// one, the amount is not (#698). An American is handed the teaspoons
+    /// the line wrote, not an ounce figure made from its grams.
+    pub fn is_readers_own(&self, measures: Measures) -> bool {
+        match measures {
+            Measures::Metric => self.system == System::Metric,
+            Measures::Us => self.system == System::Customary,
+            Measures::AsWritten => false,
+        }
+    }
+}
+
+/// The short line beside an Ingredient Line, [`measured_line_in`], made from
+/// the measure the line restates where that is the reader's own
+/// ([`Restated::is_readers_own`]): `7g (2t)` read as written, by an American,
+/// needs nothing beside it (#698).
+#[allow(clippy::too_many_arguments)]
+pub fn measured_line_of(
+    text: &str,
+    written_in_language: &str,
+    amount: Option<&str>,
+    unit: Option<&str>,
+    scale: f64,
+    measures: Measures,
+    language: &str,
+    cup_weight_grams: Option<f64>,
+) -> Option<String> {
+    let restated = amount.zip(unit).and_then(|(amount, unit)| {
+        let source = words::of(written_in_language).unit(unit)?;
+        let at = amount_at(text, amount, Some(unit))?;
+        let rest = text[at + amount.len()..].trim_start().strip_prefix(unit)?;
+        restated_after(rest, written_in_language, source, false)
+            .filter(|restated| restated.is_readers_own(measures))
+    });
+    let (amount, unit) = match &restated {
+        Some(restated) => (Some(restated.amount.as_str()), Some(restated.unit.as_str())),
+        None => (amount, unit),
+    };
+    measured_line_in(
+        written_in_language,
+        amount,
+        unit,
+        scale,
+        measures,
+        language,
+        cup_weight_grams,
+    )
 }
 
 /// **One amount, scaled and converted, before it is worded.** A range keeps
@@ -953,11 +1112,11 @@ struct Figure {
 
 impl Figure {
     fn rounded_high(&self) -> f64 {
-        round_to(self.high, self.unit)
+        round_line(self.high, self.unit)
     }
 
     fn number(&self, language: &str) -> String {
-        let one = |quantity: f64| number_for(round_to(quantity, self.unit), self.unit, language);
+        let one = |quantity: f64| number_for(round_line(quantity, self.unit), self.unit, language);
         match self.low {
             Some(low) => format!("{}-{}", one(low), one(self.high)),
             None => one(self.high),
@@ -983,6 +1142,67 @@ impl Figure {
     }
 }
 
+/// **The tool in an American drawer that measures this** (#698), the
+/// largest that says it: a cup, then a tablespoon, then a teaspoon, or a
+/// pound, then an ounce. The Unit written is held to the same test, so a
+/// sixteenth of a cup goes on to the tablespoon. Nothing where the Unit
+/// written is the one, or is neither a spoon, a cup nor a weight.
+///
+/// A tool says it when every end of the amount, `share` being the lower
+/// end's share of the higher in a range, sits at or above its smallest
+/// measure (a quarter cup, one tablespoon, one pound) and, for a cup made
+/// from spoons, on a cup the set has (a quarter or a third), and when it is
+/// no further from the arithmetic than the Unit written. So `6 tsp` is
+/// `2 tbsp`, `15 tsp` is `5 tbsp`, `16 tsp` is `⅓ cup`, while `4 tsp` stays
+/// four rather than become about 1¼ tablespoons and `6 tbsp` is no ⅜ cup.
+fn drawers_tool(
+    quantity: f64,
+    written: &'static Unit,
+    share: Option<f64>,
+) -> Option<&'static Unit> {
+    let tools: &[&'static str] = match written.id {
+        "teaspoon" | "tablespoon" | "cup" => &["cup", "tablespoon", "teaspoon"],
+        "ounce" | "pound" => &["pound", "ounce"],
+        _ => return None,
+    };
+    let base = quantity * written.base;
+    let ends = |unit: &'static Unit| {
+        let high = base / unit.base;
+        [Some(high), share.map(|share| high * share)]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+    };
+    let off = |unit: &'static Unit| -> f64 {
+        ends(unit)
+            .iter()
+            .map(|end| (round_line(*end, Some(unit)) - end).abs() * unit.base)
+            .sum()
+    };
+    let says_it = |unit: &'static Unit| {
+        let smallest = match unit.id {
+            "cup" => 0.25,
+            "tablespoon" | "pound" => 1.0,
+            _ => 0.0,
+        };
+        let whole = |end: f64| (end.round() - end).abs() < 1e-9;
+        // Spoons become cups only on a cup the set has. A cup the recipe
+        // wrote keeps the eighths every cup line is read to.
+        let on_a_mark = |end: f64| {
+            unit.id != "cup" || unit.id == written.id || whole(end * 4.0) || whole(end * 3.0)
+        };
+        ends(unit)
+            .iter()
+            .all(|&end| end >= smallest - 1e-9 && on_a_mark(end))
+            && off(unit) <= off(written) + 1e-9
+    };
+    tools
+        .iter()
+        .map(|id| unit_by_id(id))
+        .find(|unit| says_it(unit))
+        .filter(|unit| unit.id != written.id)
+}
+
 /// [`Figure`] for an amount as written, a single one or a range, or nothing
 /// where it is neither.
 fn figure_in(
@@ -1004,17 +1224,46 @@ fn figure_in(
         return None;
     }
     let source = unit.and_then(|unit| words::of(written_in_language).unit(unit));
-    let measured = convert(high * scale, source, unit, measures, cup_weight_grams);
+    let mut measured = convert(high * scale, source, unit, measures, cup_weight_grams);
+    // Too little for the reader's Unit, `about 0 oz` of yeast: the Unit
+    // written says it better than a figure of nothing (#698).
+    if measured.unit.map(|u| u.system) != source.map(|u| u.system)
+        && rounds_to_nothing(measured.quantity, measured.unit)
+    {
+        measured = Measured {
+            quantity: high * scale,
+            unit: source,
+            as_written: None,
+        };
+    }
+    // Scaled, an American measure is said with the tool that measures it,
+    // `6 tsp` as `2 tbsp` (#698). Read as written it is left as the cook
+    // wrote it, the rule [`convert`] keeps.
+    if scale != 1.0
+        && measures == Measures::Us
+        && let Some(written) = source
+        && measured.unit.map(|u| u.id) == Some(written.id)
+        && let Some(tool) = drawers_tool(measured.quantity, written, low.map(|low| low / high))
+    {
+        measured = Measured {
+            quantity: measured.quantity * written.base / tool.base,
+            unit: Some(tool),
+            as_written: None,
+        };
+    }
     // Every conversion is a ratio, so the lower end is worth the same share
     // of the larger one after it as before.
     let low_measured = low.map(|low| measured.quantity * low / high);
 
     let converted = measured.unit.map(|u| u.id) != source.map(|u| u.id);
-    let rounded = |quantity: f64| (round_to(quantity, measured.unit) - quantity).abs() > 1e-9;
-    let about = converted || rounded(measured.quantity) || low_measured.is_some_and(rounded);
+    // Another Unit of the same system is exact arithmetic, `6 tsp` being
+    // `2 tbsp`; only another system, or rounding, makes a figure "about".
+    let crossed = measured.unit.map(|u| u.system) != source.map(|u| u.system);
+    let rounded = |quantity: f64| (round_line(quantity, measured.unit) - quantity).abs() > 1e-9;
+    let about = crossed || rounded(measured.quantity) || low_measured.is_some_and(rounded);
     // The comparison is on the rounded figure, because that is the one a
     // reader would be comparing against the line above.
-    let same = |now: f64, then: f64| round_to(now, measured.unit) == round_to(then, source);
+    let same = |now: f64, then: f64| round_line(now, measured.unit) == round_line(then, source);
     let unchanged = !converted
         && same(measured.quantity, high)
         && match (low_measured, low) {
@@ -1338,7 +1587,13 @@ pub fn by_id(id: &str) -> Option<&'static Unit> {
 /// still needed reading here. One table of equipment, read top to bottom, is
 /// what makes it checkable against a real drawer.
 fn round_to(quantity: f64, unit: Option<&'static Unit>) -> f64 {
-    let step = match unit.map(|unit| unit.id) {
+    let step = step_of(quantity, unit);
+    (quantity / step).round() * step
+}
+
+/// The mark [`round_to`] rounds to, which is the equipment's.
+fn step_of(quantity: f64, unit: Option<&'static Unit>) -> f64 {
+    match unit.map(|unit| unit.id) {
         Some("gram") if quantity < 100.0 => 1.0,
         Some("gram") => 5.0,
         Some("kilogram") | Some("litre") => 0.05,
@@ -1350,8 +1605,48 @@ fn round_to(quantity: f64, unit: Option<&'static Unit>) -> f64 {
         // A Unit Kamosu does not know still scales, and the cook's own measure
         // is as likely to be halved as anything else.
         _ => 0.125,
-    };
-    (quantity / step).round() * step
+    }
+}
+
+/// **[`round_to`] for one amount of one line**, an Ingredient Line's or a
+/// Step's, which a cook measures out (#698). Three marks are finer or coarser
+/// than a sum on the Shopping List needs, which keeps [`round_to`]:
+///
+/// - a set of spoons goes down to an eighth of a teaspoon, and a set of
+///   cups holds a third and two thirds;
+/// - a count, or a Unit Kamosu does not know, is cut in quarters, since nobody
+///   cuts ⅜ of a chile;
+/// - a positive amount is never said as nothing: under half the smallest mark
+///   it is that mark, and "about" says so.
+fn round_line(quantity: f64, unit: Option<&'static Unit>) -> f64 {
+    let step = line_step(quantity, unit);
+    if rounds_to_nothing(quantity, unit) {
+        return step;
+    }
+    let rounded = (quantity / step).round() * step;
+    // A set of cups has a third and two thirds beside its eighths.
+    let thirds = (quantity * 3.0).round() / 3.0;
+    if unit.is_some_and(|unit| unit.id == "cup")
+        && (thirds - quantity).abs() < (rounded - quantity).abs()
+    {
+        return thirds;
+    }
+    rounded
+}
+
+/// Whether one line's `quantity` is under half of the smallest mark
+/// [`round_line`] reads its Unit to, so rounding would say it as nothing.
+fn rounds_to_nothing(quantity: f64, unit: Option<&'static Unit>) -> bool {
+    quantity > 0.0 && (quantity / line_step(quantity, unit)).round() == 0.0
+}
+
+/// The mark [`round_line`] rounds to.
+fn line_step(quantity: f64, unit: Option<&'static Unit>) -> f64 {
+    match unit.map(|unit| unit.id) {
+        Some("teaspoon") if quantity < 1.0 => 0.125,
+        None => 0.25,
+        _ => step_of(quantity, unit),
+    }
 }
 
 // --- Wording it --------------------------------------------------------------
@@ -1593,6 +1888,9 @@ const OVEN_LADDER: &[(i32, i32)] = &[
     (450, 230),
     (475, 245),
     (500, 260),
+    // A pizza at the oven's hottest (#698).
+    (525, 275),
+    (550, 290),
 ];
 
 /// The other direction, and a table of its own rather than [`OVEN_LADDER`] read
@@ -1623,6 +1921,10 @@ const METRIC_LADDER: &[(i32, i32)] = &[
     (240, 475),
     (250, 475),
     (260, 500),
+    // The top of a metric dial, where a pizza is baked (#698).
+    (270, 525),
+    (280, 550),
+    (290, 550),
 ];
 
 /// A temperature found in a Step, and which system it was written in.
@@ -1981,8 +2283,10 @@ enum Piece {
     /// A slash, which is a range too (*20/25 minutes*) unless the two numbers
     /// either side of it read as a fraction (*1/2 hour*).
     Slash,
-    /// Anything else — a comma, a bracket, a full stop. Present rather than
-    /// skipped, so that a range's two ends must genuinely be adjacent.
+    /// A mark that ends a clause: a comma, a bracket, a full stop.
+    Stop,
+    /// Anything else, such as an apostrophe. Present rather than skipped, so
+    /// that a range's two ends must genuinely be adjacent.
     Other,
 }
 
@@ -2038,6 +2342,9 @@ pub fn step_duration(text: &str, language: &str) -> Option<i64> {
             continue;
         };
         let quantity = lower_end(lists, &pieces, start, written).unwrap_or(written);
+        if waited_already(lists, &pieces, start) {
+            continue;
+        }
         let seconds =
             quantity * unit_seconds as f64 + rest_after_unit(lists, &pieces, index, unit_seconds);
         if !(1.0..=LONGEST_TIMER_SECONDS as f64).contains(&seconds) {
@@ -2046,6 +2353,53 @@ pub fn step_duration(text: &str, language: &str) -> Option<i64> {
         return Some(seconds.round() as i64);
     }
     None
+}
+
+/// **Whether the clause puts this duration in the past** (#698): the wait it
+/// names happened before this Step, so a timer for it would send the cook into
+/// a second one. The pizza dough's *After the total fermentation time of 90
+/// minutes, turn the dough out* names the two rests before it.
+///
+/// The clause is the pieces back to the last [`Piece::Stop`], a comma, a
+/// bracket or a full stop. It is in the past where it opens with one of
+/// [`Words::past_wait_opens`] (*after*, *once*, *when*) and then either says
+/// the wait is done, with one of [`Words::past_wait_done`] at most two words
+/// before the number (*once it **has** rested for 2 hours*), or names the wait
+/// as a thing right before the number, one of [`Words::past_wait_names`] and
+/// then one of [`Words::past_wait_of`] (*the fermentation **time of** 90
+/// minutes*). So *when the water has boiled add the pasta and cook for 10
+/// minutes*, *after a total of 10 minutes* and *after 10 minutes* each keep
+/// their timer.
+fn waited_already(lists: &Words, pieces: &[Piece], start: usize) -> bool {
+    let clause_start = pieces[..start]
+        .iter()
+        .rposition(|piece| matches!(piece, Piece::Stop))
+        .map_or(0, |stop| stop + 1);
+    let clause = &pieces[clause_start..start];
+    let word = |piece: &Piece| match piece {
+        Piece::Word(word) => Some(word.clone()),
+        _ => None,
+    };
+    let Some(opens) = clause
+        .iter()
+        .position(|piece| word(piece).is_some_and(|w| lists.past_wait_opens.has(&w)))
+    else {
+        return false;
+    };
+    let after_opening = &clause[opens + 1..];
+    let done = after_opening
+        .iter()
+        .rev()
+        .take(3)
+        .any(|piece| word(piece).is_some_and(|w| lists.past_wait_done.has(&w)));
+    let named = match after_opening {
+        [.., name, of] => {
+            word(name).is_some_and(|w| lists.past_wait_names.has(&w))
+                && word(of).is_some_and(|w| lists.past_wait_of.has(&w))
+        }
+        _ => false,
+    };
+    done || named
 }
 
 /// The longest duration this offers a timer for: a week.
@@ -2328,6 +2682,7 @@ fn tokenise(text: &str) -> Vec<Piece> {
                 // A sign that names what the number before it measures, as a
                 // word would: the 35 in `30 minutes 35°C` is a temperature.
                 '°' | '%' => Piece::Word(character.to_string()),
+                ',' | '.' | ';' | ':' | '!' | '?' | '(' | ')' => Piece::Stop,
                 _ => Piece::Other,
             });
         }
@@ -2392,6 +2747,18 @@ mod tests {
         );
         // Above 300 but on no rung: silence beats a number nobody can set.
         assert_eq!(metric("A pizza oven reaches 700°.", None), None);
+    }
+
+    #[test]
+    fn the_hottest_home_oven_is_on_both_ladders() {
+        // The Sample Library's pizza, step 12 (#698).
+        let pizza = "Bake at the oven's hottest, 275 °C here: 12 to 14 minutes for the pan pizza, 11 to 12 on a stone or steel.";
+        assert_eq!(us(pizza, None), Some("about 525 °F".into()));
+        assert_eq!(us("Bake at 285°C.", None), Some("about 550 °F".into()));
+        assert_eq!(
+            metric("Bake in a preheated oven at 550°F.", None),
+            Some("about 290 °C".into())
+        );
     }
 
     #[test]
@@ -2509,6 +2876,79 @@ mod tests {
             "Laat een minuut of 5 staan.",
         ] {
             assert_eq!(timer(text), None, "{text}");
+        }
+    }
+
+    #[test]
+    fn a_wait_the_step_says_is_over_offers_no_timer() {
+        // The Sample Library's pizza dough, step 6: the 90 minutes are the
+        // two rests before it, already waited (#698).
+        for (text, language) in [
+            (
+                "After the total fermentation time of 90 minutes, turn the dough out onto a lightly floured surface.",
+                "en",
+            ),
+            (
+                "Once the dough has rested for 2 hours, shape it into a ball.",
+                "en",
+            ),
+            (
+                "When the onions have cooked for 10 minutes, add the garlic.",
+                "en",
+            ),
+            (
+                "Après le temps de repos de 90 minutes, dégazez la pâte.",
+                "fr",
+            ),
+            (
+                "Después del tiempo de reposo de 90 minutos, desgasifica la masa.",
+                "es",
+            ),
+            ("Na de rijstijd van 90 minuten het deeg uitstorten.", "nl"),
+        ] {
+            assert_eq!(step_duration(text, language), None, "{text}");
+        }
+    }
+
+    #[test]
+    fn a_wait_that_starts_in_the_step_keeps_its_timer() {
+        for (text, seconds) in [
+            ("After 10 minutes, flip the steak.", 600),
+            (
+                "Cover and let sit at room temperature for 60 minutes.",
+                3600,
+            ),
+            (
+                "Cover the bowl with a lid and let the dough ferment on the counter for 30 minutes.",
+                1800,
+            ),
+            // The past wait is passed over for the one still to come.
+            (
+                "Once the dough has rested for 2 hours, bake it for 20 minutes.",
+                1200,
+            ),
+            // A clause of its own after the comma is a wait still to come.
+            (
+                "Once the dough has doubled, about 1 hour, punch it down.",
+                3600,
+            ),
+            ("Après 10 minutes de cuisson, retournez la viande.", 600),
+            // Found at review: a done wait far from the number is another
+            // thing, and a total or a minimum is no named wait.
+            (
+                "When the water has boiled add the pasta and cook for 10 minutes.",
+                600,
+            ),
+            ("Once you have added the eggs beat for 2 minutes.", 120),
+            ("After a minimum of 30 minutes, punch down the dough.", 1800),
+            ("After a total of 10 minutes, flip the steak.", 600),
+        ] {
+            let language = if text.starts_with("Après") {
+                "fr"
+            } else {
+                "en"
+            };
+            assert_eq!(step_duration(text, language), Some(seconds), "{text}");
         }
     }
 
@@ -2703,7 +3143,8 @@ mod tests {
         };
         assert_eq!(
             metric("1 cup (240 ml) milk", "1", "cup", "milk"),
-            Some("about 470 ml milk".into())
+            Some("480 ml milk".into()),
+            "the millilitres the line wrote, scaled (#698)"
         );
         assert_eq!(
             metric("400-450 g / 0.9-1 lb onions", "400-450", "g", "onions"),
@@ -2762,6 +3203,296 @@ mod tests {
         assert_eq!(
             us("1 Tomato", "1", None, "Tomato", 2.0),
             Some("2 Tomatoes".into())
+        );
+    }
+
+    /// A figure too small for the reader's Unit keeps the Unit written, and
+    /// no amount is ever said as nothing (#698): the pizza dough's 7 g of
+    /// yeast halved was "about 0 oz".
+    #[test]
+    fn a_scaled_figure_never_says_nothing() {
+        let short = |amount, unit, scale| {
+            measured_line(Some(amount), Some(unit), scale, Measures::Us, "en", None)
+        };
+        assert_eq!(short("7", "g", 0.5), Some("about 4 g".into()));
+        assert_eq!(short("12", "g", 0.25), Some("3 g".into()));
+        assert_eq!(short("1/4", "tsp", 0.25), Some("about ⅛ tsp".into()));
+        assert_eq!(short("1/2", "tsp", 0.125), Some("about ⅛ tsp".into()));
+        // Big enough for an ounce, still in ounces.
+        assert_eq!(short("7", "g", 2.0), Some("about ½ oz".into()));
+    }
+
+    /// A scaled American measure is said with the spoon, cup or weight that
+    /// measures it, as the drawer holds them (#698): six teaspoons is two
+    /// tablespoons. Exact arithmetic says no "about".
+    #[test]
+    fn a_scaled_measure_is_said_with_the_tool_that_measures_it() {
+        let us = |text: &str, amount, unit, target, scale| {
+            scaled_line_in(
+                text,
+                "en",
+                Some(amount),
+                Some(unit),
+                Some(target),
+                scale,
+                Measures::Us,
+                "en",
+                None,
+            )
+        };
+        // Dan Dan Noodles, doubled.
+        assert_eq!(
+            us("3 tsp sesame paste", "3", "tsp", "sesame paste", 2.0),
+            Some("2 tbsp sesame paste".into())
+        );
+        assert_eq!(
+            us(
+                "2 tbsp light soy sauce",
+                "2",
+                "tbsp",
+                "light soy sauce",
+                4.0
+            ),
+            Some("½ cup light soy sauce".into())
+        );
+        assert_eq!(
+            us("3 tbsp chilli oil", "3", "tbsp", "chilli oil", 2.0),
+            Some("6 tbsp chilli oil".into()),
+            "no set of cups has a ⅜ cup, found live on Dan Dan Noodles"
+        );
+        // Found at the second review: past a quarter cup the tablespoon is
+        // still tried, a third of a cup is in every set, and both ends of a
+        // range must land on a mark.
+        assert_eq!(
+            us("5 tsp salt", "5", "tsp", "salt", 3.0),
+            Some("5 tbsp salt".into())
+        );
+        assert_eq!(
+            us("4 tsp sugar", "4", "tsp", "sugar", 4.0),
+            Some("⅓ cup sugar".into())
+        );
+        assert_eq!(
+            us("6 tbsp butter", "6", "tbsp", "butter", 3.0),
+            Some("18 tbsp butter".into())
+        );
+        assert_eq!(
+            us("5 3/4 c flour", "5 3/4", "c", "flour", 0.5),
+            Some("2⅞ c flour".into()),
+            "a cup the recipe wrote keeps its eighths"
+        );
+        assert_eq!(
+            us("3-4 tbsp chilli oil", "3-4", "tbsp", "chilli oil", 2.0),
+            Some("6-8 tbsp chilli oil".into())
+        );
+        assert_eq!(
+            us("1 cup stock", "1", "cup", "stock", 1.0 / 3.0),
+            Some("⅓ cup stock".into())
+        );
+        assert_eq!(
+            us("1/4 cup yacai", "1/4", "cup", "yacai", 0.25),
+            Some("1 tbsp yacai".into())
+        );
+        assert_eq!(
+            us(
+                "1/2 lbs ground pork or beef",
+                "1/2",
+                "lbs",
+                "ground pork",
+                0.25
+            ),
+            Some("2 oz ground pork or beef".into())
+        );
+        assert_eq!(
+            us(
+                "1/2 lbs ground pork or beef",
+                "1/2",
+                "lbs",
+                "ground pork",
+                2.0
+            ),
+            Some("1 lb ground pork or beef".into()),
+            "one pound is no plural"
+        );
+        assert_eq!(
+            us("2 ts salt", "2", "ts", "salt", 0.5),
+            Some("1 ts salt".into()),
+            "`ts` is no plural of `t`"
+        );
+        assert_eq!(
+            us("2 tbs oil", "2", "tbs", "oil", 0.5),
+            Some("1 tbs oil".into())
+        );
+        assert_eq!(
+            us(
+                "1/2 tsp dark soy sauce",
+                "1/2",
+                "tsp",
+                "dark soy sauce",
+                2.0
+            ),
+            Some("1 tsp dark soy sauce".into())
+        );
+        assert_eq!(
+            measured_line(Some("3"), Some("tsp"), 2.0, Measures::Us, "en", None),
+            Some("2 tbsp".into())
+        );
+        // Read as written, nothing is re-said: three teaspoons stay three.
+        assert_eq!(
+            measured_line(Some("3"), Some("tsp"), 1.0, Measures::Us, "en", None),
+            None
+        );
+        assert_eq!(
+            scaled_line_in(
+                "3 tsp sesame paste",
+                "en",
+                Some("3"),
+                Some("tsp"),
+                Some("sesame paste"),
+                2.0,
+                Measures::AsWritten,
+                "en",
+                None,
+            ),
+            Some("6 tsp sesame paste".into()),
+            "a reader who asked for no conversion keeps the Unit written"
+        );
+    }
+
+    /// The pizza dough's lines write each amount against its Unit and
+    /// restate it in the other system (#698). The amount is found in the line
+    /// all the same, and a reader whose own measure the line already gives
+    /// is given that one, scaled, rather than a weight of yeast.
+    #[test]
+    fn a_line_restating_its_amount_is_scaled_in_the_readers_own_measure() {
+        let line = |text: &str, amount, unit, target, scale, measures| {
+            scaled_line_in(
+                text,
+                "en",
+                Some(amount),
+                Some(unit),
+                target,
+                scale,
+                measures,
+                "en",
+                None,
+            )
+        };
+        let water = "400g (1 2/3c) Warm Water, 86F/30C";
+        assert_eq!(
+            line(water, "400", "g", Some("Water"), 2.0, Measures::Us),
+            Some("3⅓ cups Warm Water, 86F/30C".into())
+        );
+        assert_eq!(
+            line(water, "400", "g", Some("Water"), 2.0, Measures::Metric),
+            Some("800 g Warm Water, 86F/30C".into()),
+            "a metric reader keeps the grams, and the cups that now say less go"
+        );
+        let yeast = "7g (2t) Instant Yeast";
+        assert_eq!(
+            line(yeast, "7", "g", Some("Instant Yeast"), 0.5, Measures::Us),
+            Some("1 tsp Instant Yeast".into())
+        );
+        assert_eq!(
+            line(yeast, "7", "g", Some("Instant Yeast"), 2.0, Measures::Us),
+            Some("4 tsp Instant Yeast".into()),
+            "four teaspoons are no whole number of tablespoons, so stay teaspoons"
+        );
+        assert_eq!(
+            line(
+                "680g (5 3/4c) All-purpose flour",
+                "680",
+                "g",
+                Some("All-purpose flour"),
+                2.0,
+                Measures::Us
+            ),
+            Some("11½ cups All-purpose flour".into())
+        );
+        assert_eq!(
+            line("12g or 2 tsp salt", "12", "g", None, 2.0, Measures::Us),
+            Some("4 tsp salt".into())
+        );
+        assert_eq!(
+            line(
+                "100g 6Tbsp tomato paste",
+                "100",
+                "g",
+                Some("6Tbsp tomato paste"),
+                2.0,
+                Measures::Us
+            ),
+            Some("¾ cup tomato paste".into())
+        );
+        assert_eq!(
+            line(
+                "1 cup (240 ml) milk",
+                "1",
+                "cup",
+                Some("milk"),
+                2.0,
+                Measures::Metric
+            ),
+            Some("480 ml milk".into()),
+            "a metric reader is given the millilitres the line wrote"
+        );
+    }
+
+    /// Beside a line read as written, a line that already says the reader's
+    /// own measure gets nothing (#698).
+    #[test]
+    fn a_line_already_in_the_readers_measure_needs_nothing_beside_it() {
+        let short = |text: &str, amount, unit, scale| {
+            measured_line_of(
+                text,
+                "en",
+                Some(amount),
+                Some(unit),
+                scale,
+                Measures::Us,
+                "en",
+                None,
+            )
+        };
+        assert_eq!(short("7g (2t) Instant Yeast", "7", "g", 1.0), None);
+        assert_eq!(
+            short("7g (2t) Instant Yeast", "7", "g", 2.0),
+            Some("4 tsp".into())
+        );
+        assert_eq!(
+            short("7 g instant yeast", "7", "g", 2.0),
+            Some("about ½ oz".into())
+        );
+    }
+
+    /// A count is cut in quarters, not eighths: nobody cuts ⅜ of a chile
+    /// (#698).
+    #[test]
+    fn a_scaled_count_is_said_in_quarters() {
+        let count = |text: &str, target, scale| {
+            scaled_line_in(
+                text,
+                "en",
+                Some("1"),
+                None,
+                Some(target),
+                scale,
+                Measures::Us,
+                "en",
+                None,
+            )
+        };
+        assert_eq!(
+            count("1 red chile", "red chile", 0.375),
+            Some("about ½ red chile".into())
+        );
+        assert_eq!(
+            count("1 red chile", "red chile", 0.25),
+            Some("¼ red chile".into())
+        );
+        // The Sample Library's own count line.
+        assert_eq!(
+            count("1 chili pepper", "chili pepper", 0.375),
+            Some("about ½ chili pepper".into())
         );
     }
 

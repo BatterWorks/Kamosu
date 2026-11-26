@@ -74,7 +74,8 @@ names_nothing_alone = [
     "cube", "cubes", "piece", "pieces", "chunk", "chunks", "flake", "flakes",
     "wedge", "wedges", "fillet", "fillets", "stem", "stems", "seed", "seeds",
     "sheet", "sheets", "ball", "balls", "portion", "portions", "pouch",
-    "pouches", "spoon", "spoons", "bulk", "loaf", "splash", "minute",
+    "pouches", "spoon", "spoons", "bulk", "loaf", "splash", "minute", "soft",
+    "silken", "firm",
 ]
 cuts_and_parts = [
     "thigh", "thighs", "breast", "breasts", "drumstick", "drumsticks", "wing",
@@ -128,6 +129,18 @@ timer_ranges = [
 timer_more = [
     "more", "additional", "further", "extra", "other",
 ]
+past_wait_opens = [
+    "after", "once", "when",
+]
+past_wait_done = [
+    "has", "have", "had",
+]
+past_wait_of = [
+    "of",
+]
+past_wait_names = [
+    "time", "rest", "rise", "proof", "fermentation", "resting", "rising", "proofing",
+]
 spoken_half = [
     "and a half",
 ]
@@ -169,6 +182,18 @@ step_next_actions = [
 ]
 step_and = [
     "and",
+]
+step_except = [
+    "besides", "except", "excluding",
+]
+step_more = [
+    "more",
+]
+step_each = [
+    "each", "apiece",
+]
+step_each_time = [
+    "time", "times",
 ]
 
 # --- Reading a paste ---
@@ -301,3 +326,12 @@ hour = [
 "molasses" = "molasses"
 "fries" = "fries"
 "fish" = "fish"
+
+# --- What a Step calls a food by that its name never holds, and the names it stands for ---
+
+[step_other_names]
+"mince" = [
+    "ground beef", "ground pork", "ground lamb", "ground veal", "ground turkey",
+    "ground chicken", "ground meat", "minced beef", "minced pork", "minced lamb",
+    "minced meat",
+]

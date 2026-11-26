@@ -131,6 +131,16 @@ timer_ranges = [
 timer_more = [
     "autres",
 ]
+past_wait_opens = [
+    "après",
+]
+past_wait_done = []
+past_wait_of = [
+    "de", "d",
+]
+past_wait_names = [
+    "temps", "repos", "pousse", "levée", "fermentation", "pointage",
+]
 spoken_half = [
     "et demie", "et demi",
 ]
@@ -174,6 +184,19 @@ step_next_actions = [
 ]
 step_and = [
     "et",
+]
+step_except = [
+    "sauf", "excepté",
+]
+# Not *plus*, which says as often *no longer* or *later* (*plus tard*).
+step_more = [
+    "davantage",
+]
+step_each = [
+    "chacun", "chacune", "chacuns", "chacunes",
+]
+step_each_time = [
+    "fois",
 ]
 
 # --- Reading a paste ---

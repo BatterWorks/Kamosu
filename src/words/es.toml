@@ -98,6 +98,16 @@ timer_ranges = [
 timer_more = [
     "mas", "otros", "otras",
 ]
+past_wait_opens = [
+    "después", "tras",
+]
+past_wait_done = []
+past_wait_of = [
+    "de",
+]
+past_wait_names = [
+    "tiempo", "reposo", "levado", "levada", "fermentación",
+]
 spoken_half = [
     "y medio", "y media",
 ]
@@ -143,6 +153,18 @@ step_next_actions = [
 ]
 step_and = [
     "y",
+]
+step_except = [
+    "excepto", "salvo",
+]
+step_more = [
+    "más",
+]
+step_each = [
+    "cada",
+]
+step_each_time = [
+    "vez", "veces",
 ]
 
 # --- Reading a paste ---
