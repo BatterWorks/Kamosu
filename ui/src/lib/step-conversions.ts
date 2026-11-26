@@ -59,3 +59,20 @@ export function inPlace(before: string, measured: string): string {
 		? measured.slice(first.length).trimStart()
 		: measured;
 }
+
+/**
+ * A Step's words with its conversions written in, as one line of text, for
+ * where a Step is read small and in one colour: the next Step's preview on a
+ * tablet (round 5 of #681's climb). Drawn as `StepWords` draws them, the
+ * written figure with tonight's or the cook's after it, or tonight's in its
+ * place when `lead`.
+ */
+export function stepText(text: string, conversions: StepConversions, lead = false): string {
+	return stepPieces(text, conversions)
+		.map(({ text: before, written, measured }) => {
+			if (written === null) return before;
+			if (lead) return before + inPlace(before, measured ?? '');
+			return `${before}${written} (${measured})`;
+		})
+		.join('');
+}

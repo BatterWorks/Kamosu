@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { inPlace, stepPieces } from './step-conversions';
+import { inPlace, stepPieces, stepText } from './step-conversions';
 
 describe('stepPieces', () => {
 	it('cuts the text straight after each written amount, and changes none of it', () => {
@@ -62,5 +62,22 @@ describe('inPlace', () => {
 		expect(inPlace('Pour in ', '1.6 l')).toBe('1.6 l');
 		expect(inPlace('Melt ', 'about 2 oz')).toBe('about 2 oz');
 		expect(inPlace('', 'about 2 oz')).toBe('about 2 oz');
+	});
+});
+
+describe('stepText', () => {
+	const conversions = [{ written: '280g', measured: 'about 10 oz' }];
+	it('writes the conversion after the figure it converts', () => {
+		expect(stepText('Divide into four, each weighing about 280g.', conversions)).toBe(
+			'Divide into four, each weighing about 280g (about 10 oz).',
+		);
+	});
+	it("puts tonight's figure in the written one's place when it leads", () => {
+		expect(stepText('Divide into four, each weighing about 280g.', conversions, true)).toBe(
+			'Divide into four, each weighing about 10 oz.',
+		);
+	});
+	it('leaves a Step with no conversions as written', () => {
+		expect(stepText('Knead it.', [])).toBe('Knead it.');
 	});
 });

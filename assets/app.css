@@ -1426,6 +1426,9 @@
   .min-w-6 {
     min-width: var(--spacing-6);
   }
+  .min-w-12 {
+    min-width: var(--spacing-12);
+  }
   .min-w-\[88px\] {
     min-width: 88px;
   }

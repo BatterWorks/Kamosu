@@ -127,7 +127,13 @@
 			class="second-button how-much-step"
 			disabled={fewer === undefined}
 			aria-label={m.how_much_fewer()}
-			onclick={() => fewer !== undefined && onchoose(fewer)}
+			onclick={() => {
+				// Open from now on, so − and + stay under the thumb when the next
+				// amount is one of the four: at 8 of a recipe for 4 (Double) they
+				// folded away into Another amount (round 4 of #681's climb).
+				another = true;
+				if (fewer !== undefined) onchoose(fewer);
+			}}
 		>
 			−
 		</button>
@@ -142,7 +148,10 @@
 			class="second-button how-much-step"
 			disabled={more === undefined}
 			aria-label={m.how_much_more()}
-			onclick={() => more !== undefined && onchoose(more)}
+			onclick={() => {
+				another = true;
+				if (more !== undefined) onchoose(more);
+			}}
 		>
 			+
 		</button>

@@ -92,6 +92,7 @@
 	import HowMuch from '#lib/HowMuch.svelte';
 	import StepPhoto from '#lib/StepPhoto.svelte';
 	import StepWords from '#lib/StepWords.svelte';
+	import { stepText } from '#lib/step-conversions.js';
 	import { fresh } from './fresh';
 	import { mistake, putMistakeAway } from '#lib/mistake.svelte.js';
 	import {
@@ -375,7 +376,9 @@
 	let movedAt = 0;
 
 	function finishOnPurpose() {
-		if (Date.now() - movedAt < 500) return;
+		// A full second: at half of one, a second tap 700 ms after arriving on
+		// the last step finished the cooking, with no way back (round 4).
+		if (Date.now() - movedAt < 1000) return;
 		void finish();
 	}
 
@@ -710,6 +713,10 @@
 			? null
 			: (content?.steps[here.row.from]?.photo ?? null),
 	);
+	/** Whether any Step of this cooking has a photograph, and so a Photo button. */
+	const anyStepPhoto = $derived(
+		stops.some((stop) => stop.row.from !== null && Boolean(content?.steps[stop.row.from]?.photo)),
+	);
 	/**
 	 * What the Core added to this Step for this cook: its oven and its amounts,
 	 * converted and scaled, each drawn straight after what it converts (#150).
@@ -721,6 +728,16 @@
 		here === undefined || here.row.from === null || wroteStep(here.row)
 			? []
 			: (version?.measured.steps[here.row.from] ?? []),
+	);
+	/**
+	 * The same for the next Step's preview on a tablet, which read the oven
+	 * as written while the Step it leads to gave it in the cook's measures
+	 * (round 4 of #681's climb).
+	 */
+	const nextConversions = $derived(
+		comingNext === undefined || comingNext.row.from === null || wroteStep(comingNext.row)
+			? []
+			: (version?.measured.steps[comingNext.row.from] ?? []),
 	);
 
 	/**
@@ -1443,7 +1460,7 @@
 		<header class="relative flex shrink-0 items-center gap-2 pt-1 sideways:pt-0">
 			<a
 				href="/recipes/{branchId}"
-				class="-ml-2 flex min-h-12 min-w-0 flex-1 items-center gap-[6px] rounded-sm pr-2 text-cook-ink"
+				class="-ml-2 flex min-h-12 min-w-12 flex-1 items-center gap-[6px] rounded-sm pr-2 text-cook-ink"
 				aria-label={m.cook_leave_for_now({ title: content.title })}
 			>
 				<svg
@@ -1456,17 +1473,7 @@
 					stroke-linecap="round"
 					stroke-linejoin="round"><path d="M15 5l-7 7 7 7" /></svg
 				>
-				<!-- A photo kept is said here for three seconds, in the recipe's name's
-				     place: over nothing the cook reads at that moment, and moving
-				     nothing. Above Back and Next it covered the Step's last lines, and
-				     at the top right the step count (rounds 2 and 3 of #681's climb). -->
-				{#if photoKept}
-					<span class="truncate font-display text-line font-semibold" aria-hidden="true">
-						✓ {m.cook_photo_kept()}
-					</span>
-				{:else}
-					<span class="truncate font-display text-line font-semibold">{content.title}</span>
-				{/if}
+				<span class="truncate font-display text-line font-semibold">{content.title}</span>
 			</a>
 			<p class="sr-only" role="status">{photoKept ? m.cook_photo_kept() : ''}</p>
 			<!--
@@ -1482,7 +1489,7 @@
 			{#if wentWrong}
 				<button
 					type="button"
-					class="quiet-button shrink-0"
+					class="quiet-button min-w-12 shrink-0"
 					aria-label={m.wrong_title()}
 					aria-haspopup="dialog"
 					onclick={() => {
@@ -1491,7 +1498,9 @@
 					}}
 				>
 					<i class="h-2 w-2 shrink-0 rounded-sm bg-support" aria-hidden="true"></i>
-					{m.cook_went_wrong()}
+					<!-- Its dot alone beside an amount, which left the way out 10px wide
+					     (round 4 of #681's climb). -->
+					<span class={choseAmount ? 'sr-only' : ''}>{m.cook_went_wrong()}</span>
 				</button>
 			{/if}
 			<!--
@@ -1500,12 +1509,14 @@
 				(#109). On the recipe's row, since it says how much of the recipe:
 				on a row of its own above the Step it took a phone's row on every
 				Step without a timer (round 4 of #681's climb). Away from the
-				timer, so a thumb aiming at one cannot catch the other.
+				timer, so a thumb aiming at one cannot catch the other. With no
+				outline, so it reads as part of the recipe's name rather than as
+				one of the Step's tools (round 4).
 			-->
 			{#if choseAmount && !writing && !asking}
 				<button
 					type="button"
-					class="quiet-button shrink-0"
+					class="quiet-button shrink-0 border-transparent"
 					aria-label={m.cook_how_much_is({ amount: howMuch })}
 					onclick={() => {
 						atStart = false;
@@ -1604,60 +1615,64 @@
 							}}
 						/>
 					</label>
-					<!--
+					<!-- Neither acts on the question of how much, so neither is offered
+					     there (round 4 of #681's climb). -->
+					{#if !asking}
+						<!--
 						THE WHOLE of how a cook says *I did it differently* (#58). It
 						opens no sheet and covers nothing: the amounts and the Step become
 						fields where they already stand, so the cook never leaves the step
 						they are on. This was chosen over a sheet on 4 September 2026; the
 						reasoning is on #58.
 					-->
-					<button
-						type="button"
-						class="flex min-h-12 items-center gap-3 text-left text-body text-cook-ink"
-						onclick={() => {
-							more = false;
-							writing = true;
-						}}
-					>
-						<svg
-							viewBox="0 0 24 24"
-							aria-hidden="true"
-							class="h-[18px] w-[18px] shrink-0"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="1.8"
-							stroke-linecap="round"
-							stroke-linejoin="round"><path d="M5 4h10l4 4v12H5zM9 12h6M9 16h4" /></svg
+						<button
+							type="button"
+							class="flex min-h-12 items-center gap-3 text-left text-body text-cook-ink"
+							onclick={() => {
+								more = false;
+								writing = true;
+							}}
 						>
-						{m.cook_note_a_change()}
-					</button>
-					<!--
+							<svg
+								viewBox="0 0 24 24"
+								aria-hidden="true"
+								class="h-[18px] w-[18px] shrink-0"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="1.8"
+								stroke-linecap="round"
+								stroke-linejoin="round"><path d="M5 4h10l4 4v12H5zM9 12h6M9 16h4" /></svg
+							>
+							{m.cook_note_a_change()}
+						</button>
+						<!--
 						HOW MUCH, asked again from any Step (round 1 of #681's climb). A
 						cooking as written shows no amount above the Step, so the one way
 						back to the question was Back to before the first Step: six taps
 						from the sixth.
 					-->
-					<button
-						type="button"
-						class="flex min-h-12 items-center gap-3 text-left text-body text-cook-ink"
-						onclick={() => {
-							more = false;
-							atStart = false;
-							asking = true;
-						}}
-					>
-						<svg
-							viewBox="0 0 24 24"
-							aria-hidden="true"
-							class="h-[18px] w-[18px] shrink-0"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="1.8"
-							stroke-linecap="round"
-							stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4" /></svg
+						<button
+							type="button"
+							class="flex min-h-12 items-center gap-3 text-left text-body text-cook-ink"
+							onclick={() => {
+								more = false;
+								atStart = false;
+								asking = true;
+							}}
 						>
-						{m.cook_change_how_much()}
-					</button>
+							<svg
+								viewBox="0 0 24 24"
+								aria-hidden="true"
+								class="h-[18px] w-[18px] shrink-0"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="1.8"
+								stroke-linecap="round"
+								stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4" /></svg
+							>
+							{m.cook_change_how_much()}
+						</button>
+					{/if}
 					<!--
 						The Wake Lock, and its off switch. The real API and nothing else — a
 						browser without it says the screen may sleep, which is true, rather
@@ -1711,28 +1726,42 @@
 				nearer the row's top.
 			-->
 			<div class="flex min-h-[52px] shrink-0 items-center gap-3 wide:min-h-[64px]">
-				<div class="flex flex-1 gap-1" aria-hidden="true">
-					{#each stops as stop, index (stop.index)}
-						<!--
+				<!-- A photo kept is said here for three seconds, in place of the
+				     strips and the count: over nothing the cook reads at that moment.
+				     Above Back and Next it covered the Step's last lines, and in the
+				     recipe's name's place it was cut beside an amount (rounds 2 to 4
+				     of #681's climb). -->
+				{#if photoKept}
+					<p
+						class="min-w-0 flex-1 truncate text-step-reading font-semibold text-cook-accent"
+						aria-hidden="true"
+					>
+						✓ {m.cook_photo_kept()}
+					</p>
+				{:else}
+					<div class="flex flex-1 gap-1" aria-hidden="true">
+						{#each stops as stop, index (stop.index)}
+							<!--
 							A strip is STRIPED where this cooking's words are not the
 							recipe's — a step rewritten, or one the cook inserted. It costs
 							the noren no height and no number to say so, which is the whole
 							of why the noren is shaped the way it is.
 						-->
-						<i
-							style="height: var(--noren-h){wroteStep(stop.row)
-								? '; background-image: repeating-linear-gradient(135deg, var(--color-cook-accent) 0 3px, transparent 3px 6px)'
-								: ''}"
-							class="flex-1 rounded-sm
+							<i
+								style="height: var(--noren-h){wroteStep(stop.row)
+									? '; background-image: repeating-linear-gradient(135deg, var(--color-cook-accent) 0 3px, transparent 3px 6px)'
+									: ''}"
+								class="flex-1 rounded-sm
 								{index < position ? 'bg-cook-accent opacity-45' : ''}
 								{index === position ? 'bg-cook-accent' : ''}
 								{index > position ? 'bg-cook-rule' : ''}"
-						></i>
-					{/each}
-				</div>
-				<span class="shrink-0 text-step-reading text-cook-ink">
-					{m.cook_step_of({ n: position + 1, total: stops.length })}
-				</span>
+							></i>
+						{/each}
+					</div>
+					<span class="shrink-0 text-step-reading text-cook-ink">
+						{m.cook_step_of({ n: position + 1, total: stops.length })}
+					</span>
+				{/if}
 				{#if stepPhoto}
 					<StepPhoto
 						photograph={stepPhoto}
@@ -1741,6 +1770,13 @@
 						shapeClass="quiet-button border-cook-accent ps-1 font-semibold text-cook-accent"
 						thumbClass="h-8 w-8"
 					/>
+				{:else if anyStepPhoto}
+					<!-- Its room, kept on a Step with none, so the count does not jump
+					     106px sideways from one Step to the next (round 4). -->
+					<span class="invisible quiet-button ps-1 font-semibold" aria-hidden="true">
+						<span class="h-8 w-8"></span>
+						{m.cook_step_photo()}
+					</span>
 				{/if}
 			</div>
 		{/if}
@@ -1797,26 +1833,30 @@
 					<!--
 						The timer. One tap, nothing typed, nothing stored — and it is the
 						cook's rather than the step's, so it follows them forward. While
-						one runs it stands where the offer was, filled: two timers at once
-						is a thing to keep track of, and this screen exists to stop the
-						cook keeping track of things. A running one stops on a second tap
+						one runs it stands where the offer was: two timers at once is a
+						thing to keep track of, and this screen exists to stop the cook
+						keeping track of things. A running one stops on a second tap
 						(#681); one that has rung goes on the first.
+
+						48px tall, as an amount's row is, with its words at the line's
+						size; running, its digits at the Step's size in an outline, and
+						filled only once the time is up, so Next stays the one filled
+						thing while it counts (round 4 of #681's climb).
 					-->
 					{#if countdown.remaining !== null}
 						<button
 							type="button"
-							class="quiet-button min-w-[128px] shrink-0 justify-center border-cook-accent bg-cook-accent font-semibold text-cook-on-accent tabular-nums
-								{countdown.rung ? 'flex-1 text-body' : ''}"
+							class="quiet-button min-h-12 min-w-[128px] shrink-0 justify-center border-cook-accent font-semibold tabular-nums
+								{countdown.rung ? 'flex-1 bg-cook-accent text-body text-cook-on-accent' : 'text-cook-ink'}"
 							onclick={tapTimer}
 						>
 							{@render clockIcon()}
-							<!-- The digits at the amounts' figure size, read across the
-							     kitchen; they were the chip's 15px (round 1 of #681's
-							     climb). Words stay the chip's size, so the chip does not
-							     outgrow its row. -->
+							<!-- The digits at the Step's size, read across the kitchen; they
+							     were the chip's 15px (round 1 of #681's climb), then the
+							     amounts' 21px (round 4). -->
 							<span
 								aria-hidden="true"
-								class={countdown.rung || stopArmed ? '' : 'text-panel-figure leading-none'}
+								class={countdown.rung || stopArmed ? '' : 'text-step leading-none'}
 							>
 								{countdown.rung
 									? m.cook_timer_done()
@@ -1834,12 +1874,12 @@
 					{:else if !writing && duration !== null && offer}
 						<button
 							type="button"
-							class="quiet-button min-w-[128px] shrink-0 justify-center border-cook-accent font-semibold"
+							class="quiet-button min-h-12 min-w-[128px] shrink-0 justify-center border-cook-accent font-semibold"
 							aria-label={m.cook_timer_start({ duration: offer })}
 							onclick={() => startTimer(duration)}
 						>
 							{@render clockIcon()}
-							{m.cook_timer_offer({ duration: offer })}
+							<span class="text-line">{m.cook_timer_offer({ duration: offer })}</span>
 						</button>
 					{/if}
 					{#if writing}
@@ -2282,7 +2322,7 @@
 											text={here.row.text}
 											conversions={stepConversions}
 											lead={scaled}
-											readingClass="font-sans text-step-reading font-normal text-cook-soft"
+											readingClass="font-sans text-panel-figure-mid font-normal text-cook-soft"
 										/>
 									</div>
 								</div>
@@ -2317,7 +2357,7 @@
 										class="line-clamp-3 font-display text-next-step"
 										style:-webkit-line-clamp={nextAside ? nextLines : nextUnderLines}
 									>
-										{comingNext.row.text}
+										{stepText(comingNext.row.text, nextConversions, scaled)}
 									</p>
 								</aside>
 							{/if}
