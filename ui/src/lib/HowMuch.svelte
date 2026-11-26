@@ -26,11 +26,13 @@
 		choices,
 		counts,
 		isMultiplier,
+		nounFor,
 		said,
 		same,
 		stepped,
 		type Wanted,
 		type Written,
+		type YieldNouns,
 	} from '#lib/how-much.js';
 
 	interface Props {
@@ -39,9 +41,11 @@
 		onchoose: (wanted: Wanted) => void;
 		/** The indigo room at the stove, or the paper of every other screen. */
 		room: 'cook' | 'page';
+		/** The noun for one and for many, where the Core gave them (#705). */
+		nouns?: YieldNouns;
 	}
 
-	let { written, wanted, onchoose, room }: Props = $props();
+	let { written, wanted, onchoose, room, nouns }: Props = $props();
 
 	const quick = $derived(choices(written));
 	const fewer = $derived(stepped(written, wanted, -1));
@@ -109,7 +113,9 @@
 				>{choiceName(choice.of, !!choice.count)}</span
 			>
 			{#if choice.count && written}
-				<span class="font-display text-line">{choice.count} {written.noun}</span>
+				<span class="font-display text-line"
+					>{choice.count} {nounFor(choice.count, written, nouns)}</span
+				>
 			{/if}
 		</button>
 	{/each}
@@ -128,7 +134,7 @@
 		<p class="min-w-0 flex-1 text-center font-display text-step font-semibold" aria-live="polite">
 			{isMultiplier(wanted) ? said(wanted) : shown}
 			<span class="font-sans text-body font-normal {cook ? 'text-cook-soft' : 'text-ink-2'}">
-				{isMultiplier(wanted) ? '' : written.noun}
+				{isMultiplier(wanted) ? '' : nounFor(shown, written, nouns)}
 			</span>
 		</p>
 		<button

@@ -339,6 +339,7 @@ hour = [
 # --- The plurals no rule of `units::english_plural` reaches, each with its singular ---
 
 [irregular]
+"people" = "person"
 "leaves" = "leaf"
 "loaves" = "loaf"
 "halves" = "half"

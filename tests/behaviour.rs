@@ -23927,6 +23927,11 @@ async fn the_pizza_dough_scales_in_the_measures_it_already_gives_an_american() {
         json!(null),
         "the 90 minutes are the rests before this Step, already waited"
     );
+    assert_eq!(
+        version["yield_nouns"],
+        json!({ "one": "pizza", "many": "pizzas" }),
+        "a screen counting pizzas says `1 pizza` (#705)"
+    );
 
     let measured = |amount: &str| {
         let (_, read) = app.post_op(
@@ -23946,14 +23951,16 @@ async fn the_pizza_dough_scales_in_the_measures_it_already_gives_an_american() {
         eight["ingredients"],
         json!([
             "3⅓ cups Warm Water, 86F/30C",
-            "4 tsp Instant Yeast",
+            "1 tbsp + 1 tsp Instant Yeast",
             "11½ cups All-purpose flour",
         ])
     );
+    // The Step's 680 g is the list's 680 g, so it gives the list's cups,
+    // though it restates them as 5 1/3 where the list says 5 3/4 (#705).
     assert_eq!(
         eight["steps"],
         json!([
-            [{ "written": "680g (about 5 1/3 cups)", "measured": "10⅔ cups" }],
+            [{ "written": "680g (about 5 1/3 cups)", "measured": "11½ cups" }],
             null,
             // One piece of dough weighs the same however many pizzas.
             [{ "written": "280g", "measured": "about 10 oz" }],
@@ -23964,7 +23971,12 @@ async fn the_pizza_dough_scales_in_the_measures_it_already_gives_an_american() {
     let two = measured("2");
     assert_eq!(
         two["steps"][0],
-        json!([{ "written": "680g (about 5 1/3 cups)", "measured": "2⅔ cups" }])
+        json!([{ "written": "680g (about 5 1/3 cups)", "measured": "2⅞ cups" }])
+    );
+    assert_eq!(
+        version["measured"]["steps"][0],
+        json!(null),
+        "as written, the Step's own cups stand, as the recipe wrote them"
     );
     assert_eq!(
         two["ingredients"],
@@ -23973,6 +23985,96 @@ async fn the_pizza_dough_scales_in_the_measures_it_already_gives_an_american() {
             "1 tsp Instant Yeast",
             "2⅞ cups All-purpose flour",
         ])
+    );
+}
+
+/// A Step that names its line's own amount, read as written, is given the
+/// measure the line restates in the reader's own system (#705), found at
+/// review: it said nothing, since that measure is already the reader's.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_step_naming_its_lines_amount_is_given_the_lines_measure() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    for (measures, line, step, written, said) in [
+        (
+            "us",
+            "680g (5 3/4c) All-purpose flour",
+            "Add 680g all-purpose flour and mix.",
+            "680g",
+            "5¾ cups",
+        ),
+        (
+            "metric",
+            "2 tbsp (30 ml) olive oil",
+            "Heat 2 tbsp olive oil in a pan.",
+            "2 tbsp",
+            "30 ml",
+        ),
+    ] {
+        reads_in(&app, &key, "en", measures);
+        let (_, created) = app.post_op(
+            "create_recipe",
+            Some(&key),
+            &json!({
+                "title": "One line",
+                "ingredients": [{ "kind": "ingredient", "text": line }],
+                "steps": [{ "kind": "step", "text": step }],
+            })
+            .to_string(),
+        );
+        assert_eq!(
+            created["result"]["versions"][0]["measured"]["steps"],
+            json!([[{ "written": written, "measured": said }]]),
+            "{measures}: {created}"
+        );
+    }
+}
+
+/// The Sample Library's Dan Dan Noodles at twice the recipe, for a cook who
+/// reads in US measures (#705): a pound is no plural, and spoons that reach
+/// the next tool are carried up into it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn dan_dan_noodles_doubled_carries_its_spoons_up() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Stéphane");
+    reads_in(&app, &key, "en", "us");
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "title": "Dan Dan Noodles",
+            "ingredients": [
+                { "kind": "ingredient", "text": "1/2 lbs ground pork or beef" },
+                { "kind": "ingredient", "text": "2 tsp minced ginger" },
+                { "kind": "ingredient", "text": "5 tbsp Sichuan chili oil" },
+            ],
+            "steps": [{ "kind": "step", "text": "Combine all sauce ingredients." }],
+        })
+        .to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap();
+    let (_, read) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({
+            "branch_id": branch_id,
+            "wanted_yield": { "amount": "2", "noun": "" },
+        })
+        .to_string(),
+    );
+    assert_eq!(
+        read["result"]["versions"][0]["measured"]["ingredients"],
+        json!([
+            "1 lb ground pork or beef",
+            "1 tbsp + 1 tsp minced ginger",
+            "½ cup + 2 tbsp Sichuan chili oil",
+        ]),
+        "{read}"
+    );
+    assert_eq!(
+        read["result"]["versions"][0]["yield_nouns"],
+        json!(null),
+        "a recipe that never said what it makes has no noun to count"
     );
 }
 

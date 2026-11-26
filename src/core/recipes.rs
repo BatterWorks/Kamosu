@@ -1019,6 +1019,19 @@ impl Core {
                     &reader,
                     scale,
                 )?;
+                // The Yield's noun for one and for many, so a screen counting
+                // it says `1 serving` (#705).
+                let written_yield = &version["content"]["yield"];
+                version["yield_nouns"] = match (
+                    written_yield["amount"].as_str(),
+                    written_yield["noun"].as_str(),
+                ) {
+                    (Some(amount), Some(noun)) => {
+                        let nouns = units::yield_nouns(amount, noun, &written_in_language);
+                        json!({ "one": nouns.one, "many": nouns.many })
+                    }
+                    _ => Value::Null,
+                };
                 // And what the cooking screen reads out of each Step, from the
                 // Readings just laid alongside (ADR 0011). Derived here, on
                 // every read, so both Doors say the same thing, and stored

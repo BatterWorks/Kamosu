@@ -117,6 +117,7 @@ function answers(over: Answers = {}): Answers {
 					created_at: '2026-08-30T09:00:00Z',
 					translates_version_id: null,
 					scaled_to: null,
+					yield_nouns: { one: 'serving', many: 'servings' },
 					language: 'en',
 					// A recipe that composes nothing, which is nearly all of them (#50).
 					components: [],
@@ -992,6 +993,29 @@ describe('photographing the cooking (#77)', () => {
 				cooking_yield: { amount: '5', noun: 'servings' },
 			});
 		});
+	});
+
+	it('says one serving, not one servings (#705)', async () => {
+		kamosu = await cook(scalingKamosu(), { asked: true });
+		await fireEvent.click(await screen.findByRole('button', { name: 'Another amount' }));
+		for (const count of ['3', '2', '1']) {
+			await fireEvent.click(await screen.findByRole('button', { name: 'One fewer' }));
+			await vi.waitFor(() => {
+				const sent = kamosu?.calls.findLast((call) => call.operation === 'advance_attempt');
+				expect(sent?.input).toMatchObject({ cooking_yield: { amount: count } });
+			});
+		}
+		await vi.waitFor(() =>
+			expect(
+				screen
+					.getAllByText(/serving/)
+					.map((each) => each.closest('p')?.textContent?.replace(/\s+/g, ' ').trim()),
+			).toContain('1 serving'),
+		);
+		await fireEvent.click(screen.getByRole('button', { name: 'Start cooking' }));
+		expect(
+			await screen.findByRole('button', { name: 'Cooking 1 serving. Change how much' }),
+		).toBeInTheDocument();
 	});
 
 	it('asks again from the row mid-cook, and the foot goes back to the step', async () => {

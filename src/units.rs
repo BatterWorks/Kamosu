@@ -672,14 +672,29 @@ pub fn measured_line_in(
     if figure.unchanged {
         return None;
     }
-    let number = figure.number(language);
-    let unit = figure.unit_word(language);
-    let said = if unit.is_empty() {
-        number
-    } else {
-        format!("{number} {unit}")
-    };
-    Some(figure.about_if_due(said, language))
+    Some(figure.said(language))
+}
+
+/// [`measured_line_in`] said even where it is the measure written: for a
+/// Step given its line's measure, which its own words do not say (#705).
+pub fn measured_said_in(
+    written_in_language: &str,
+    amount: &str,
+    unit: &str,
+    scale: f64,
+    measures: Measures,
+    language: &str,
+    cup_weight_grams: Option<f64>,
+) -> Option<String> {
+    figure_in(
+        written_in_language,
+        amount,
+        Some(unit),
+        scale,
+        measures,
+        cup_weight_grams,
+    )
+    .map(|figure| figure.said(language))
 }
 
 /// **An Ingredient Line read whole at another Yield** (#680): the written line
@@ -1071,11 +1086,7 @@ pub fn measured_line_of(
     cup_weight_grams: Option<f64>,
 ) -> Option<String> {
     let restated = amount.zip(unit).and_then(|(amount, unit)| {
-        let source = words::of(written_in_language).unit(unit)?;
-        let at = amount_at(text, amount, Some(unit))?;
-        let rest = text[at + amount.len()..].trim_start().strip_prefix(unit)?;
-        restated_after(rest, written_in_language, source, false)
-            .filter(|restated| restated.is_readers_own(measures))
+        readers_own_in_line(text, written_in_language, amount, unit, measures)
     });
     let (amount, unit) = match &restated {
         Some(restated) => (Some(restated.amount.as_str()), Some(restated.unit.as_str())),
@@ -1090,6 +1101,45 @@ pub fn measured_line_of(
         language,
         cup_weight_grams,
     )
+}
+
+/// **The measure an Ingredient Line restates its amount in, where that is
+/// the reader's own** ([`Restated::is_readers_own`]): the `5 3/4c` of
+/// `680g (5 3/4c) All-purpose flour`, for an American. A Step naming the
+/// line's own amount is given it too, so the list and the Step say one
+/// figure (#705).
+pub fn readers_own_in_line(
+    text: &str,
+    written_in_language: &str,
+    amount: &str,
+    unit: &str,
+    measures: Measures,
+) -> Option<Restated> {
+    let source = words::of(written_in_language).unit(unit)?;
+    let at = amount_at(text, amount, Some(unit))?;
+    let rest = text[at + amount.len()..].trim_start().strip_prefix(unit)?;
+    restated_after(rest, written_in_language, source, false)
+        .filter(|restated| restated.is_readers_own(measures))
+}
+
+/// Whether two amounts, each with its Unit as written in `language`, are
+/// the same measure: `680` `g` and `680` `grams`.
+pub fn same_measure(language: &str, one: (&str, &str), other: (&str, &str)) -> bool {
+    let lists = words::of(language);
+    let unit_of = |unit: &str| lists.unit(unit).map(|unit| unit.id);
+    let ends = |amount: &str| {
+        parse_amount(amount)
+            .map(|quantity| (quantity, quantity))
+            .or_else(|| parse_range_in(language, amount))
+    };
+    let close = |a: f64, b: f64| (a - b).abs() < 1e-9;
+    unit_of(one.1).is_some()
+        && unit_of(one.1) == unit_of(other.1)
+        && ends(one.0)
+            .zip(ends(other.0))
+            .is_some_and(|((low, high), (other_low, other_high))| {
+                close(low, other_low) && close(high, other_high)
+            })
 }
 
 /// **One amount, scaled and converted, before it is worded.** A range keeps
@@ -1108,27 +1158,63 @@ struct Figure {
     about: bool,
     /// The line already says this, in this Unit and at this number.
     unchanged: bool,
+    /// What is left after a spoon carried up into a bigger tool, in the
+    /// smaller ones: the `2 tbsp` of `½ cup + 2 tbsp` (#705).
+    smaller: Vec<(f64, &'static Unit)>,
+    /// A range converted into ounces, said in whole ounces (#705).
+    whole_ounces: bool,
 }
 
 impl Figure {
+    /// One end rounded to the marks it is said on.
+    fn round(&self, quantity: f64) -> f64 {
+        if self.whole_ounces {
+            quantity.round().max(1.0)
+        } else {
+            round_line(quantity, self.unit)
+        }
+    }
+
     fn rounded_high(&self) -> f64 {
-        round_line(self.high, self.unit)
+        self.round(self.high)
     }
 
     fn number(&self, language: &str) -> String {
-        let one = |quantity: f64| number_for(round_line(quantity, self.unit), self.unit, language);
+        let one = |quantity: f64| number_for(self.round(quantity), self.unit, language);
         match self.low {
             Some(low) => format!("{}-{}", one(low), one(self.high)),
             None => one(self.high),
         }
     }
 
+    /// The Unit's word, and the rest in each smaller tool after it where a
+    /// spoon was carried up: `cup + 2 tbsp`.
     fn unit_word(&self, language: &str) -> String {
-        match (&self.unit, &self.as_written) {
+        let word = match (&self.unit, &self.as_written) {
             (Some(unit), _) => display(unit, language, plural(self.rounded_high(), language)),
             (None, Some(written)) => written.clone(),
             (None, None) => String::new(),
-        }
+        };
+        self.smaller.iter().fold(word, |said, &(quantity, unit)| {
+            let rounded = round_line(quantity, Some(unit));
+            format!(
+                "{said} + {} {}",
+                number_for(rounded, Some(unit), language),
+                display(unit, language, plural(rounded, language))
+            )
+        })
+    }
+
+    /// The figure and its Unit, with "about" where it is due.
+    fn said(&self, language: &str) -> String {
+        let number = self.number(language);
+        let unit = self.unit_word(language);
+        let said = if unit.is_empty() {
+            number
+        } else {
+            format!("{number} {unit}")
+        };
+        self.about_if_due(said, language)
     }
 
     /// "about" before a figure Kamosu rounded or converted, and nothing
@@ -1251,6 +1337,23 @@ fn figure_in(
             as_written: None,
         };
     }
+    // A scaled spoon that reaches a bigger tool is carried up into it, the
+    // rest said with the smaller ones (#705): `10 tbsp` is `½ cup + 2 tbsp`.
+    let mut smaller = Vec::new();
+    let mut carried_inexact = false;
+    if scale != 1.0
+        && measures == Measures::Us
+        && low.is_none()
+        && let Some(carried) = carried_up(measured.quantity, measured.unit)
+    {
+        measured = Measured {
+            quantity: carried.count,
+            unit: Some(carried.big),
+            as_written: None,
+        };
+        smaller = carried.smaller;
+        carried_inexact = carried.inexact;
+    }
     // Every conversion is a ratio, so the lower end is worth the same share
     // of the larger one after it as before.
     let low_measured = low.map(|low| measured.quantity * low / high);
@@ -1260,7 +1363,17 @@ fn figure_in(
     // `2 tbsp`; only another system, or rounding, makes a figure "about".
     let crossed = measured.unit.map(|u| u.system) != source.map(|u| u.system);
     let rounded = |quantity: f64| (round_line(quantity, measured.unit) - quantity).abs() > 1e-9;
-    let about = crossed || rounded(measured.quantity) || low_measured.is_some_and(rounded);
+    let about = crossed
+        || rounded(measured.quantity)
+        || low_measured.is_some_and(rounded)
+        || carried_inexact;
+    // A range converted into ounces is a guess at both ends already, so it
+    // is said in the whole ounces a kitchen scale shows (#705), where whole
+    // ounces still tell its ends apart: `20-30 g` is no `1-1 oz`.
+    let whole_ounces = crossed
+        && measured.unit.is_some_and(|unit| unit.id == "ounce")
+        && low_measured
+            .is_some_and(|low| low.round() >= 2.0 && low.round() < measured.quantity.round());
     // The comparison is on the rounded figure, because that is the one a
     // reader would be comparing against the line above.
     let same = |now: f64, then: f64| round_line(now, measured.unit) == round_line(then, source);
@@ -1280,6 +1393,72 @@ fn figure_in(
         converted,
         about,
         unchanged,
+        smaller,
+        whole_ounces,
+    })
+}
+
+/// **A spoon amount carried up into bigger tools** (#705), as an American
+/// recipe writes `½ cup + 2 tbsp`: as many quarter cups as it holds, then
+/// whole tablespoons, then the teaspoons left. Only an amount that reaches
+/// a tablespoon, from teaspoons, or a quarter cup, from tablespoons, is
+/// carried.
+struct Carried {
+    /// The biggest tool, and how many of it.
+    big: &'static Unit,
+    count: f64,
+    /// The rest, in each smaller tool that holds some.
+    smaller: Vec<(f64, &'static Unit)>,
+    /// Rounding the teaspoons left changed the amount.
+    inexact: bool,
+}
+
+/// [`Carried`] for an amount, or nothing where it is no spoon or reaches no
+/// bigger tool.
+fn carried_up(quantity: f64, unit: Option<&'static Unit>) -> Option<Carried> {
+    let unit = unit?;
+    let cup = unit_by_id("cup");
+    let tablespoon = unit_by_id("tablespoon");
+    let teaspoon = unit_by_id("teaspoon");
+    let quarter_cup = cup.base / 4.0;
+    let millilitres = quantity * unit.base;
+    let reaches = match unit.id {
+        "teaspoon" => tablespoon.base,
+        "tablespoon" => quarter_cup,
+        _ => return None,
+    };
+    if millilitres < reaches - 1e-9 {
+        return None;
+    }
+    // The teaspoons past the last whole tablespoon are rounded to a
+    // teaspoon's marks first, and may round up to one more tablespoon.
+    let teaspoons = millilitres / teaspoon.base;
+    let whole_spoons = (teaspoons / 3.0 + 1e-9).floor();
+    // In plain eighths, so a remainder of nothing, or of next to nothing
+    // left by the arithmetic, is no teaspoon at all.
+    let rounded = whole_spoons * 3.0 + ((teaspoons - whole_spoons * 3.0) / 0.125).round() * 0.125;
+    let inexact = (rounded - teaspoons).abs() > 1e-9;
+    let mut left = rounded * teaspoon.base;
+    let mut take = |mark: f64| {
+        let marks = (left / mark + 1e-9).floor();
+        left -= marks * mark;
+        marks
+    };
+    let quarters = take(quarter_cup);
+    let spoons = take(tablespoon.base);
+    let mut parts = [
+        (quarters / 4.0, cup),
+        (spoons, tablespoon),
+        (left / teaspoon.base, teaspoon),
+    ]
+    .into_iter()
+    .filter(|(count, _)| *count > 1e-9);
+    let (count, big) = parts.next()?;
+    Some(Carried {
+        big,
+        count,
+        smaller: parts.collect(),
+        inexact,
     })
 }
 
@@ -1356,6 +1535,90 @@ fn english_singular(word: &str) -> String {
         return word[..word.len() - 1].to_string();
     }
     word.to_string()
+}
+
+/// **A Yield's noun for one and for many** (#705), in the recipe's Language,
+/// whichever of the two it wrote: a screen counting servings one at a time
+/// says `1 serving` and `2 servings` from it. The grammar is here and the
+/// plurals no rule reaches are the word files' `irregular` lists. Only the
+/// last word counts, so `ring cake` is `ring cakes`.
+pub struct YieldNouns {
+    pub one: String,
+    pub many: String,
+}
+
+pub fn yield_nouns(amount: &str, noun: &str, language: &str) -> YieldNouns {
+    let (head, last) = match noun.rsplit_once(' ') {
+        Some((head, last)) => (format!("{head} "), last),
+        None => (String::new(), noun),
+    };
+    // A noun after one, or after a figure in the singular, is the one.
+    let written_one = parse_amount(amount).is_some_and(|quantity| !plural(quantity, language));
+    let (one, many) = if written_one {
+        (last.to_string(), noun_many(last, language))
+    } else {
+        (noun_one(last, language), last.to_string())
+    };
+    YieldNouns {
+        one: format!("{head}{one}"),
+        many: format!("{head}{many}"),
+    }
+}
+
+/// The singular of a plural noun in `language`.
+fn noun_one(word: &str, language: &str) -> String {
+    let lower = word.to_lowercase();
+    if let Some(one) = words::of(language).irregular.get(&lower) {
+        return with_capital_of(word, one);
+    }
+    let strip = |end: &str| word[..word.len() - end.len()].to_string();
+    match language {
+        "en" => english_singular(word),
+        "fr" if lower.ends_with("eaux") || lower.ends_with("eux") => strip("x"),
+        "fr" if lower.len() > 2 && lower.ends_with('s') => strip("s"),
+        "es" if lower.ends_with("ones") => format!("{}ón", strip("ones")),
+        "es" if lower.ends_with("ces") => format!("{}z", strip("ces")),
+        // *Panes* is *pan* and *unidades* *unidad*, a vowel before the
+        // last consonant, while *postres* is *postre*.
+        "es" if lower.len() > 3
+            && lower.ends_with("es")
+            && lower[..lower.len() - 2].ends_with(['l', 'n', 'r', 'd', 'j'])
+            && lower[..lower.len() - 3].ends_with(|c: char| "aeiouáéíóú".contains(c)) =>
+        {
+            strip("es")
+        }
+        "es" if lower.len() > 2 && lower.ends_with('s') => strip("s"),
+        "nl" => crate::dutch::singular(words::of(language), word),
+        _ => word.to_string(),
+    }
+}
+
+/// The plural of a singular noun in `language`, or the word itself where
+/// the grammar here cannot say.
+fn noun_many(word: &str, language: &str) -> String {
+    let lower = word.to_lowercase();
+    if let Some((many, _)) = words::of(language)
+        .irregular
+        .iter()
+        .find(|(_, one)| **one == lower)
+    {
+        return with_capital_of(word, many);
+    }
+    let vowel = |c: char| "aeiouáéíóú".contains(c);
+    match language {
+        "en" => english_plural(word),
+        "fr" if lower.ends_with(['s', 'x', 'z']) => word.to_string(),
+        "fr" if lower.ends_with("eau") => format!("{word}x"),
+        "fr" => format!("{word}s"),
+        "es" if lower.ends_with("ón") => {
+            format!("{}ones", &word[..word.len() - "ón".len()])
+        }
+        "es" if lower.ends_with('z') => format!("{}ces", &word[..word.len() - 1]),
+        "es" if lower.ends_with(vowel) => format!("{word}s"),
+        "es" => format!("{word}es"),
+        "nl" => crate::dutch::plural(words::of(language), word),
+        _ => word.to_string(),
+    }
 }
 
 /// Scale, then convert — never the other way round, and never rounding in
@@ -3257,7 +3520,7 @@ mod tests {
         );
         assert_eq!(
             us("3 tbsp chilli oil", "3", "tbsp", "chilli oil", 2.0),
-            Some("6 tbsp chilli oil".into()),
+            Some("¼ cup + 2 tbsp chilli oil".into()),
             "no set of cups has a ⅜ cup, found live on Dan Dan Noodles"
         );
         // Found at the second review: past a quarter cup the tablespoon is
@@ -3265,7 +3528,7 @@ mod tests {
         // range must land on a mark.
         assert_eq!(
             us("5 tsp salt", "5", "tsp", "salt", 3.0),
-            Some("5 tbsp salt".into())
+            Some("¼ cup + 1 tbsp salt".into())
         );
         assert_eq!(
             us("4 tsp sugar", "4", "tsp", "sugar", 4.0),
@@ -3273,7 +3536,7 @@ mod tests {
         );
         assert_eq!(
             us("6 tbsp butter", "6", "tbsp", "butter", 3.0),
-            Some("18 tbsp butter".into())
+            Some("1 cup + 2 tbsp butter".into())
         );
         assert_eq!(
             us("5 3/4 c flour", "5 3/4", "c", "flour", 0.5),
@@ -3358,6 +3621,200 @@ mod tests {
         );
     }
 
+    /// A Yield's noun worded for one and for many, whichever the recipe wrote
+    /// (#705): the cooking screen said `1 servings` once a recipe for four was
+    /// stepped down to one.
+    #[test]
+    fn a_yields_noun_is_worded_for_one_and_for_many() {
+        let nouns = |amount, noun, language| {
+            let worded = yield_nouns(amount, noun, language);
+            (worded.one, worded.many)
+        };
+        let pair = |one: &str, many: &str| (one.to_string(), many.to_string());
+        assert_eq!(nouns("4", "servings", "en"), pair("serving", "servings"));
+        assert_eq!(nouns("4", "pizzas", "en"), pair("pizza", "pizzas"));
+        assert_eq!(nouns("2", "loaves", "en"), pair("loaf", "loaves"));
+        assert_eq!(nouns("4", "people", "en"), pair("person", "people"));
+        assert_eq!(nouns("1", "loaf", "en"), pair("loaf", "loaves"));
+        assert_eq!(
+            nouns("1", "ring cake", "en"),
+            pair("ring cake", "ring cakes")
+        );
+        assert_eq!(nouns("8", "slices", "en"), pair("slice", "slices"));
+        assert_eq!(nouns("4", "personnes", "fr"), pair("personne", "personnes"));
+        assert_eq!(nouns("6", "gâteaux", "fr"), pair("gâteau", "gâteaux"));
+        assert_eq!(nouns("1", "plat", "fr"), pair("plat", "plats"));
+        assert_eq!(nouns("4", "porciones", "es"), pair("porción", "porciones"));
+        assert_eq!(nouns("4", "personas", "es"), pair("persona", "personas"));
+        assert_eq!(nouns("2", "panes", "es"), pair("pan", "panes"));
+        assert_eq!(nouns("4", "porties", "nl"), pair("portie", "porties"));
+        assert_eq!(nouns("4", "personen", "nl"), pair("persoon", "personen"));
+        assert_eq!(nouns("4", "pizza's", "nl"), pair("pizza", "pizza's"));
+        // Found at review.
+        assert_eq!(nouns("4", "taarten", "nl"), pair("taart", "taarten"));
+        assert_eq!(nouns("8", "stukken", "nl"), pair("stuk", "stukken"));
+        assert_eq!(nouns("1", "taart", "nl"), pair("taart", "taarten"));
+        assert_eq!(
+            nouns("1", "stuk", "nl"),
+            pair("stuk", "stuks"),
+            "the word file's plural, as Dutch counts pieces"
+        );
+        assert_eq!(nouns("1", "portie", "nl"), pair("portie", "porties"));
+        assert_eq!(nouns("4", "schalen", "nl"), pair("schaal", "schalen"));
+        assert_eq!(nouns("1", "schaal", "nl"), pair("schaal", "schalen"));
+        assert_eq!(nouns("6", "tomaten", "nl"), pair("tomaat", "tomaten"));
+        assert_eq!(nouns("1", "tomaat", "nl"), pair("tomaat", "tomaten"));
+        assert_eq!(nouns("6", "rozen", "nl"), pair("roos", "rozen"));
+        assert_eq!(nouns("1", "roos", "nl"), pair("roos", "rozen"));
+        assert_eq!(nouns("4", "glazen", "nl"), pair("glas", "glazen"));
+        assert_eq!(nouns("12", "muffins", "nl"), pair("muffin", "muffins"));
+        assert_eq!(nouns("1", "muffin", "nl"), pair("muffin", "muffins"));
+        assert_eq!(nouns("4", "postres", "es"), pair("postre", "postres"));
+        assert_eq!(nouns("4", "unidades", "es"), pair("unidad", "unidades"));
+        assert_eq!(
+            nouns("a dozen", "cookies", "en"),
+            pair("cookie", "cookies"),
+            "an amount that is no number leaves the noun as the many"
+        );
+    }
+
+    /// A scaled spoon that reaches the next tool is carried up into it, the
+    /// rest said with the smaller one, as an American recipe writes it
+    /// (#705): Dan Dan Noodles doubled is `½ cup + 2 tbsp` of chili oil, not
+    /// `10 tbsp`, and `1 tbsp + 1 tsp` of ginger, not `4 tsp`.
+    #[test]
+    fn a_scaled_spoon_is_carried_up_into_the_next_tool() {
+        let us = |text: &str, amount, unit, target, scale| {
+            scaled_line_in(
+                text,
+                "en",
+                Some(amount),
+                Some(unit),
+                Some(target),
+                scale,
+                Measures::Us,
+                "en",
+                None,
+            )
+        };
+        assert_eq!(
+            us(
+                "5 tbsp Sichuan chili oil",
+                "5",
+                "tbsp",
+                "Sichuan chili oil",
+                2.0
+            ),
+            Some("½ cup + 2 tbsp Sichuan chili oil".into())
+        );
+        assert_eq!(
+            us("2 tsp minced ginger", "2", "tsp", "minced ginger", 2.0),
+            Some("1 tbsp + 1 tsp minced ginger".into())
+        );
+        assert_eq!(
+            us("1 1/2 tsp cumin", "1 1/2", "tsp", "cumin", 3.0),
+            Some("1½ tbsp cumin".into()),
+            "a half tablespoon is a mark of the tablespoon, so needs no teaspoon"
+        );
+        assert_eq!(
+            us("1 tbsp soy sauce", "1", "tbsp", "soy sauce", 1.5),
+            Some("1½ tbsp soy sauce".into()),
+            "under a quarter cup a tablespoon stays a tablespoon"
+        );
+        assert_eq!(
+            us("7 tsp sugar", "7", "tsp", "sugar", 3.0),
+            Some("¼ cup + 3 tbsp sugar".into()),
+            "left over from a cup, whole tablespoons"
+        );
+        assert_eq!(
+            us("2 1/4 tbsp honey", "2 1/4", "tbsp", "honey", 2.0),
+            Some("¼ cup + 1½ tsp honey".into()),
+            "less than a tablespoon left over from a cup, in teaspoons"
+        );
+        assert_eq!(
+            us("1 tsp sugar", "1", "tsp", "sugar", 2.0),
+            Some("2 tsp sugar".into()),
+            "under a tablespoon a teaspoon stays a teaspoon"
+        );
+        assert_eq!(
+            us("2 tsp salt", "2", "tsp", "salt", 1.5),
+            Some("1 tbsp salt".into()),
+            "a whole tablespoon needs no teaspoon beside it"
+        );
+        assert_eq!(
+            us("3-4 tbsp chilli oil", "3-4", "tbsp", "chilli oil", 2.0),
+            Some("6-8 tbsp chilli oil".into()),
+            "a range stays in one tool"
+        );
+        // Found at review: teaspoons past a quarter cup go on to the cup, and
+        // teaspoons rounded up into a tablespoon say "about".
+        assert_eq!(
+            us("4 tsp sugar", "4", "tsp", "sugar", 5.0),
+            Some("¼ cup + 2 tbsp + 2 tsp sugar".into())
+        );
+        assert_eq!(
+            us("1 tsp salt", "1", "tsp", "salt", 5.9),
+            Some("about 2 tbsp salt".into())
+        );
+        assert_eq!(
+            measured_line(Some("5"), Some("tbsp"), 2.0, Measures::Us, "en", None),
+            Some("½ cup + 2 tbsp".into()),
+            "a Step's amount is carried up as a line's is"
+        );
+        assert_eq!(
+            scaled_line_in(
+                "5 tbsp huile pimentée",
+                "fr",
+                Some("5"),
+                Some("tbsp"),
+                Some("huile pimentée"),
+                2.0,
+                Measures::Us,
+                "fr",
+                None,
+            ),
+            Some("½ tasse + 2 c. à s. huile pimentée".into()),
+            "each tool in the reader's words"
+        );
+    }
+
+    /// A range converted into ounces is said in whole ounces, the marks a
+    /// kitchen scale shows, since its ends are a guess already (#705): the
+    /// tomato soup's `500-700 g` halved was `about 8¾-12¼ oz`.
+    #[test]
+    fn a_converted_range_rounds_to_whole_ounces() {
+        let tomatoes = |scale| {
+            scaled_line_in(
+                "500-700 g cherry tomatoes",
+                "en",
+                Some("500-700"),
+                Some("g"),
+                Some("cherry tomatoes"),
+                scale,
+                Measures::Us,
+                "en",
+                None,
+            )
+        };
+        assert_eq!(tomatoes(0.5), Some("about 9-12 oz cherry tomatoes".into()));
+        assert_eq!(
+            tomatoes(1.5),
+            Some("about 1¾-2¼ lb cherry tomatoes".into()),
+            "pounds keep their quarters"
+        );
+        assert_eq!(
+            measured_line(Some("250"), Some("g"), 1.0, Measures::Us, "en", None),
+            Some("about 8¾ oz".into()),
+            "a single figure keeps its quarter ounces"
+        );
+        // Found at review: where whole ounces would say one figure twice, or
+        // more than the range holds, the quarters stay.
+        let short =
+            |amount, scale| measured_line(Some(amount), Some("g"), scale, Measures::Us, "en", None);
+        assert_eq!(short("20-30", 1.0), Some("about ¾-1 oz".into()));
+        assert_eq!(short("250-260", 1.0), Some("about 8¾-9¼ oz".into()));
+    }
+
     /// The pizza dough's lines write each amount against its Unit and
     /// restate it in the other system (#698). The amount is found in the line
     /// all the same, and a reader whose own measure the line already gives
@@ -3394,8 +3851,8 @@ mod tests {
         );
         assert_eq!(
             line(yeast, "7", "g", Some("Instant Yeast"), 2.0, Measures::Us),
-            Some("4 tsp Instant Yeast".into()),
-            "four teaspoons are no whole number of tablespoons, so stay teaspoons"
+            Some("1 tbsp + 1 tsp Instant Yeast".into()),
+            "four teaspoons are a tablespoon and a teaspoon (#705)"
         );
         assert_eq!(
             line(
@@ -3410,7 +3867,7 @@ mod tests {
         );
         assert_eq!(
             line("12g or 2 tsp salt", "12", "g", None, 2.0, Measures::Us),
-            Some("4 tsp salt".into())
+            Some("1 tbsp + 1 tsp salt".into())
         );
         assert_eq!(
             line(
@@ -3456,7 +3913,7 @@ mod tests {
         assert_eq!(short("7g (2t) Instant Yeast", "7", "g", 1.0), None);
         assert_eq!(
             short("7g (2t) Instant Yeast", "7", "g", 2.0),
-            Some("4 tsp".into())
+            Some("1 tbsp + 1 tsp".into())
         );
         assert_eq!(
             short("7 g instant yeast", "7", "g", 2.0),
