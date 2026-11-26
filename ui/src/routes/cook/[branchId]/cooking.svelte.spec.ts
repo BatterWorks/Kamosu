@@ -1953,6 +1953,46 @@ describe('photographing the cooking (#77)', () => {
 		expect(await exactly('about 480 g')).not.toHaveClass('text-cook-soft');
 	});
 
+	it('gives the lines their room back once the amounts are worked out (round 5 of #681)', async () => {
+		// The body runs past its foot only while the notice stands above the
+		// lines; they gave way for it and stayed small once it went.
+		const body = (element: HTMLElement) => element.classList.contains('overflow-y-auto');
+		Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
+			configurable: true,
+			get(this: HTMLElement) {
+				if (!body(this)) return 0;
+				return this.textContent?.includes('Working out the amounts') ? 1000 : 400;
+			},
+		});
+		Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
+			configurable: true,
+			get(this: HTMLElement) {
+				return body(this) ? 500 : 0;
+			},
+		});
+		try {
+			let early = 0;
+			await cook(
+				holdingKamosu((held) =>
+					held === null || early++ === 0 ? plain() : scaledPanko(held.amount),
+				),
+				{ asked: true },
+			);
+			await fireEvent.click(await screen.findByRole('radio', { name: 'Double 8 servings' }));
+			await fireEvent.click(screen.getByRole('button', { name: 'Start cooking' }));
+			expect(
+				await screen.findByText('Working out the amounts for 8 servings…'),
+			).toBeInTheDocument();
+			await vi.waitFor(() => expect(shows('about 480 g')).toBe(true), { timeout: 5_000 });
+			await vi.waitFor(async () =>
+				expect(await exactly('about 480 g')).toHaveClass('text-panel-figure'),
+			);
+		} finally {
+			Reflect.deleteProperty(HTMLElement.prototype, 'scrollHeight');
+			Reflect.deleteProperty(HTMLElement.prototype, 'clientHeight');
+		}
+	});
+
 	it('shows the later choice where its read overtakes the read of an amount carried in (#674)', async () => {
 		// Sent from a recipe page scaled to eight servings (#109).
 		const address = vi

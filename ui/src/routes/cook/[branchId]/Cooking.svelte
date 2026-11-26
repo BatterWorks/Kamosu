@@ -543,6 +543,26 @@
 		});
 	});
 
+	/**
+	 * The same Step's lines changed under it: the amounts for a new amount
+	 * arrived, or the cook noted a change. The layout gives way from the top
+	 * again, since each rung only ever went one way within a Step. While the
+	 * amounts were worked out, their notice ran the pizza's first step a few
+	 * pixels past the foot, and its lines stayed in two cramped columns once
+	 * the notice went (round 5 of #681's climb).
+	 */
+	$effect(() => {
+		void amountsCaughtUp;
+		void writing;
+		void amounts.map((amount) => `${amount.row.text}\u0000${amount.beneath ?? ''}`).join('\n');
+		untrack(() => {
+			nextBelow = false;
+			fit = 0;
+			nextUnderLines = 3;
+			measureBody();
+		});
+	});
+
 	$effect(() => {
 		const element = nextEl;
 		if (!element || !room.roomy || !nextBeside) {
