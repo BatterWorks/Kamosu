@@ -2131,9 +2131,11 @@ fn held_from(
 /// **Nobody has to type a link.** A Step points at no Ingredient Line and an
 /// Ingredient Line has no name of its own (ADR 0019); what joins them is the
 /// Reading's target, which is a word, or a part of it the Step shortens it to
-/// (`crate::step_uses`, #184). So this is worked out here, on every read,
-/// from the two things already written — and a Step on a recipe nothing has
-/// been read on simply uses nothing, which is the panel degrading to prose
+/// (`crate::step_uses`, #184), and for a line offering a choice, which names
+/// no Food, each option the line offers (#697). So this is worked out here,
+/// on every read, from the two things already written — and a Step on a
+/// recipe nothing has been read on uses at most its choice lines, which is
+/// the panel degrading to prose
 /// rather than failing. Where a person corrected a Step, `by_hand` holds the
 /// lines they gave, and those stand instead (ADR 0054), with what was read
 /// beside them as `as_read` (#456).

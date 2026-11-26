@@ -175,6 +175,13 @@ step_next_actions = [
 step_and = [
     "et",
 ]
+step_except = [
+    "sauf", "excepté",
+]
+# Not *plus*, which says as often *no longer* or *later* (*plus tard*).
+step_more = [
+    "davantage",
+]
 
 # --- Reading a paste ---
 paste_ingredients = [

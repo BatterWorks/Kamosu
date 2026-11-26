@@ -74,7 +74,8 @@ names_nothing_alone = [
     "cube", "cubes", "piece", "pieces", "chunk", "chunks", "flake", "flakes",
     "wedge", "wedges", "fillet", "fillets", "stem", "stems", "seed", "seeds",
     "sheet", "sheets", "ball", "balls", "portion", "portions", "pouch",
-    "pouches", "spoon", "spoons", "bulk", "loaf", "splash", "minute",
+    "pouches", "spoon", "spoons", "bulk", "loaf", "splash", "minute", "soft",
+    "silken", "firm",
 ]
 cuts_and_parts = [
     "thigh", "thighs", "breast", "breasts", "drumstick", "drumsticks", "wing",
@@ -169,6 +170,12 @@ step_next_actions = [
 ]
 step_and = [
     "and",
+]
+step_except = [
+    "besides", "except", "excluding",
+]
+step_more = [
+    "more",
 ]
 
 # --- Reading a paste ---
@@ -301,3 +308,12 @@ hour = [
 "molasses" = "molasses"
 "fries" = "fries"
 "fish" = "fish"
+
+# --- What a Step calls a food by that its name never holds, and the names it stands for ---
+
+[step_other_names]
+"mince" = [
+    "ground beef", "ground pork", "ground lamb", "ground veal", "ground turkey",
+    "ground chicken", "ground meat", "minced beef", "minced pork", "minced lamb",
+    "minced meat",
+]

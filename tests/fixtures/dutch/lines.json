@@ -257,7 +257,7 @@
       ],
       "steps": [
         {"oven": null, "text": "Zeef het bakmeel, de basterdsuiker en het zout in een kom.", "timer_seconds": null, "uses": [0, 1]},
-        {"oven": null, "text": "Voeg de boter, vanillesuiker of citroenrasp en 2/3 van het ei toe.", "timer_seconds": null, "uses": [3]},
+        {"oven": null, "text": "Voeg de boter, vanillesuiker of citroenrasp en 2/3 van het ei toe.", "timer_seconds": null, "uses": [2, 3]},
         {"oven": null, "text": "Schil de appels, verwijder de klokhuizen en snijd de appels in dunne schijfjes of in kleine blokjes.", "timer_seconds": null, "uses": [4]},
         {"oven": null, "text": "Meng het amandelschaafsel en de suiker door de appels en vul er de springvorm mee.", "timer_seconds": null, "uses": [4, 5]},
         {"oven": null, "text": "Bestrijk het deeg met het resterende ei.", "timer_seconds": null, "uses": [3]},

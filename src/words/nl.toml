@@ -198,6 +198,8 @@ step_next_actions = [
     "bestrooi", "schep", "leg", "serveer", "garneer", "druppel", "verdeel",
 ]
 step_and = ["en"]
+step_except = ["behalve"]
+step_more = ["meer"]
 
 # --- Reading a paste ---
 paste_ingredients = ["ingrediënten", "benodigdheden"]

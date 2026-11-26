@@ -33,6 +33,7 @@
 - On *Settings › Signing in*, a device's *Sign out*, *End* and *Rename* buttons go under its name when the two do not fit side by side. Before, in Spanish on an iPad mini held upright, they pushed the page sideways past the edge of the screen. [#689]
 - A recipe scaled to another amount, on the recipe page, the cooking screen, a printed Sheet and in `get_recipe`'s `measured`, reads each line whole at the new amount, such as *1½ heads of garlic*, scales a range such as *500-700 g* at both ends, and says *about* only where Kamosu rounded or converted. *Kept as written* now appears only under a line with an amount Kamosu could not scale. Before, a scaled line read *about 1½* with the food only in the small line beneath, a range was left as written, a line such as *olive oil* said *kept as written*, and every scaled figure said *about*. [#680]
 - The library Kamosu reads web addresses with is past a published flaw, RUSTSEC-2026-0592, where working out the origin of an address nested in thousands of `blob:` prefixes could crash Kamosu. Kamosu works out an origin only for an address it is set up with or one a browser sends while signing in with a passkey, and turns away any that is not `http` or `https` before it does. [#687]
+- The cooking screen lists more of the right ingredients beside each step. A line offering a choice, such as *coconut milk or heavy cream*, is found by either option, *mince* finds *ground pork*, *light and dark soy sauce* finds both soy sauces, an ingredient a step leaves out (*besides the thyme*) is left off that step, and one a step adds *more* of after an earlier step used it is not listed again. Before, a line with a choice was never listed, and a first step saying *oil* listed the sauce's oils too. [#697]
 
 [#632]: https://github.com/BatterWorks/Kamosu/issues/632
 [#634]: https://github.com/BatterWorks/Kamosu/issues/634
@@ -51,6 +52,7 @@
 [#687]: https://github.com/BatterWorks/Kamosu/issues/687
 [#688]: https://github.com/BatterWorks/Kamosu/issues/688
 [#689]: https://github.com/BatterWorks/Kamosu/issues/689
+[#697]: https://github.com/BatterWorks/Kamosu/issues/697
 
 ## v0.6.0 - 2026-11-13
 
