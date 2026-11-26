@@ -157,6 +157,7 @@ made_here = [
 ]
 name_tails = ["voor", "zoals", "bijvoorbeeld", "om"]
 amount_ranges = ["tot", "of", "a"]
+approximately = ["ca", "circa", "ongeveer"]
 choices = ["of", "en/of"]
 food_ends = [
     "aan", "op", "in", "met", "bij", "voor", "tot", "en", "dan", "daarna", "toe",

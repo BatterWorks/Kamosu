@@ -469,6 +469,11 @@ word_lists! {
     /// range, and anywhere else they offer a choice.
     amount_ranges: List,
 
+    /// The words that say a figure is only about right, `about` and `approx.`,
+    /// which may open a bracketed measure that restates a line's amount,
+    /// `(about 1½ cups)`. A scaled line leaves such a measure out (#680).
+    approximately: List,
+
     /// The word that offers the cook a choice.
     choices: List,
 
@@ -639,8 +644,9 @@ word_lists! {
     /// *aardappel* is no *appel* ([`crate::dutch`]).
     not_compounds: List,
 
-    /// The Dutch plurals no rule reaches, folded, each with its singular:
-    /// *eieren*, *ei*.
+    /// The plurals no rule reaches, folded, each with its singular: Dutch
+    /// *eieren*, *ei*, read by [`crate::dutch`], and English *leaves*, *leaf*,
+    /// read where a scaled line counts anew (#680).
     irregular: HashMap<String, String>,
 
     /// Each Unit of the closed set's spellings, by the Unit's id. Written the

@@ -1277,8 +1277,12 @@
 		-->
 			{#snippet written(text: string, at: number, isComponent: boolean)}
 				<span class="block text-line">{text}</span>
-				{#if !isComponent && pageScaledTo && at >= 0 && !measured.ingredients[at]}
-					<!-- Asked for another amount, and this line did not move (#109). -->
+				{#if !isComponent && pageScaledTo && at >= 0 && !measured.ingredients[at] && fixes.readingAt(at)?.amount}
+					<!--
+						Asked for another amount, and this line has one Kamosu could not
+						scale (#109). A line with no amount has nothing to scale, so it
+						says nothing (#680).
+					-->
 					<span class="block text-read text-ink-2">{m.how_much_not_scaled()}</span>
 				{:else if !isComponent && fixes.beneathLine(at)}
 					<span class="block text-read text-ink-2">{fixes.beneathLine(at)}</span>

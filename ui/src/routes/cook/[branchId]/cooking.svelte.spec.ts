@@ -774,7 +774,8 @@ describe('photographing the cooking (#77)', () => {
 					...recipe.versions[0],
 					scaled_to: { amount, noun },
 					measured: {
-						ingredients: [null, null, 'about 480 g', 'about 1.6 l', null],
+						// The whole line at the new amount, as the Core words it (#680).
+						ingredients: [null, null, 'about 480 g panko', '1.6 l water', null],
 						steps: [null, null, null, null],
 					},
 				},
@@ -875,16 +876,34 @@ describe('photographing the cooking (#77)', () => {
 
 		// The Core's scaled figure at full size, the recipe's own line beneath it
 		// — and the written line itself untouched, because nothing was rewritten.
-		const scaled = await exactly('about 480 g');
+		const scaled = await exactly('about 480 g panko');
 		expect(scaled).toHaveClass('text-panel-figure');
 		expect(screen.getByText('recipe: 1 cup panko')).toBeInTheDocument();
-		// A line Kamosu could not scale keeps its words and says so.
+		// A line with an amount Kamosu could not scale keeps its words and says so.
 		expect(await exactly('2 chicken breasts')).toHaveClass('text-panel-figure');
 		expect(screen.getByText('kept as written')).toBeInTheDocument();
 		// Nothing about a recipe was written: only the Attempt moved.
 		const wrote = kamosu.calls.map((call) => call.operation);
 		expect(wrote).not.toContain('save_recipe_version');
 		expect(wrote).not.toContain('set_as_cooked');
+	});
+
+	it('says nothing under a scaled line with no amount to scale (#680)', async () => {
+		await cook(
+			{
+				start_attempt: attempt({
+					current_step_index: 3,
+					cooking_yield: { amount: '8', noun: 'servings' },
+				}),
+				get_recipe: scaledTo('8', 'servings'),
+			},
+			{ asked: true },
+		);
+		expect(await exactly('Season with salt and leave it alone.')).toBeInTheDocument();
+		// The screen is cooking for eight, so the amounts are scaled.
+		expect(screen.getByRole('button', { name: /8 servings/ })).toBeInTheDocument();
+		expect(await exactly('a pinch of salt')).toBeInTheDocument();
+		expect(screen.queryByText('kept as written')).toBeNull();
 	});
 
 	it('offers only multipliers where the recipe never said what it makes', async () => {

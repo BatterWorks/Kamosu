@@ -417,6 +417,7 @@ impl Core {
                 conn,
                 &head_version_id,
                 line_index,
+                line["text"].as_str(),
                 &Reader::of(conn, person_id)?,
                 cooking_scale(conn, &of_this_branch, person_id, &content)?,
             )?;
@@ -1732,7 +1733,10 @@ pub(super) fn measured_for_version(
             .ok()
             .and_then(|index| ingredients.get_mut(index))
         {
-            *slot = reading.worded(reader, scale);
+            let text = ingredient_lines
+                .get(usize::try_from(reading.line_index).unwrap_or(usize::MAX))
+                .and_then(|line| line["text"].as_str());
+            *slot = reading.worded(reader, scale, text);
         }
     }
 
@@ -1890,16 +1894,35 @@ pub(super) struct Measurable {
 
 impl Measurable {
     /// The one subordinate line this Reading produces for one reader, or null.
-    fn worded(&self, reader: &Reader, scale: f64) -> Value {
-        units::measured_line_in(
-            &self.written_in_language,
-            self.amount.as_deref(),
-            self.unit.as_deref(),
-            scale,
-            reader.measures,
-            &reader.language,
-            self.cup_weight,
-        )
+    ///
+    /// At another Yield it is the whole line at the new amount, `text` with
+    /// its figure scaled (#680), since the cooking screen leads with it. At the
+    /// Yield as written it is the short conversion that sits beside the line.
+    fn worded(&self, reader: &Reader, scale: f64, text: Option<&str>) -> Value {
+        match text {
+            // The same test `scaled_to` makes, so a screen told the amounts
+            // are scaled is always handed the whole line.
+            Some(text) if scale != 1.0 => units::scaled_line_in(
+                text,
+                &self.written_in_language,
+                self.amount.as_deref(),
+                self.unit.as_deref(),
+                self.target.as_deref(),
+                scale,
+                reader.measures,
+                &reader.language,
+                self.cup_weight,
+            ),
+            _ => units::measured_line_in(
+                &self.written_in_language,
+                self.amount.as_deref(),
+                self.unit.as_deref(),
+                scale,
+                reader.measures,
+                &reader.language,
+                self.cup_weight,
+            ),
+        }
         .map_or(Value::Null, Value::from)
     }
 }
@@ -1997,13 +2020,14 @@ fn measured_for_line(
     conn: &Connection,
     version_id: &str,
     line_index: i64,
+    text: Option<&str>,
     reader: &Reader,
     scale: f64,
 ) -> Result<Value, OpError> {
     Ok(readings_to_measure(conn, version_id)?
         .iter()
         .find(|reading| reading.line_index == line_index)
-        .map_or(Value::Null, |reading| reading.worded(reader, scale)))
+        .map_or(Value::Null, |reading| reading.worded(reader, scale, text)))
 }
 
 /// How this Person measures, as stored on their account. The default is

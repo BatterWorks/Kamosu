@@ -31,6 +31,7 @@
 - A printed recipe, a shared recipe's page and a recipe's notes file write an hour in Dutch as *u*, as the app does, so 90 minutes reads *1 u 30 min*. Before, they wrote *h* in every Language. [#667]
 - After you change how much you are making while cooking, the amounts change to match as soon as Kamosu has them, without reloading the page. Before, when the read after the change failed or came back first, the screen could go on saying *Amounts scale to … once Kamosu can be reached* although they already had. [#674]
 - On *Settings › Signing in*, a device's *Sign out*, *End* and *Rename* buttons go under its name when the two do not fit side by side. Before, in Spanish on an iPad mini held upright, they pushed the page sideways past the edge of the screen. [#689]
+- A recipe scaled to another amount, on the recipe page, the cooking screen, a printed Sheet and in `get_recipe`'s `measured`, reads each line whole at the new amount, such as *1½ heads of garlic*, scales a range such as *500-700 g* at both ends, and says *about* only where Kamosu rounded or converted. *Kept as written* now appears only under a line with an amount Kamosu could not scale. Before, a scaled line read *about 1½* with the food only in the small line beneath, a range was left as written, a line such as *olive oil* said *kept as written*, and every scaled figure said *about*. [#680]
 - The library Kamosu reads web addresses with is past a published flaw, RUSTSEC-2026-0592, where working out the origin of an address nested in thousands of `blob:` prefixes could crash Kamosu. Kamosu works out an origin only for an address it is set up with or one a browser sends while signing in with a passkey, and turns away any that is not `http` or `https` before it does. [#687]
 
 [#632]: https://github.com/BatterWorks/Kamosu/issues/632
@@ -46,6 +47,7 @@
 [#667]: https://github.com/BatterWorks/Kamosu/issues/667
 [#671]: https://github.com/BatterWorks/Kamosu/issues/671
 [#674]: https://github.com/BatterWorks/Kamosu/issues/674
+[#680]: https://github.com/BatterWorks/Kamosu/issues/680
 [#687]: https://github.com/BatterWorks/Kamosu/issues/687
 [#688]: https://github.com/BatterWorks/Kamosu/issues/688
 [#689]: https://github.com/BatterWorks/Kamosu/issues/689

@@ -905,10 +905,10 @@ const LONGEST_RANGE: usize = 7;
 /// them. `4 g or 1 tsp` is therefore two measures and no range, and `1-inch`
 /// is a number measuring a word.
 ///
-/// The range is kept as written and is worth nothing: `parse_amount` answers
-/// nothing to it, so a range is never scaled, converted or added up on a
-/// shopping list (ADR 0016). What follows it is read as it is after any other
-/// amount, so `2-3 basil leaves` names basil leaves.
+/// The range is kept as written. `parse_amount` answers nothing to it, so it
+/// is never added up on a shopping list (ADR 0016), and the line beneath it
+/// scales and converts both ends (ADR 0060). What follows it is read as it is
+/// after any other amount, so `2-3 basil leaves` names basil leaves.
 fn range_words(lists: &Words, words: &[&str]) -> Option<usize> {
     (1..=words.len().min(LONGEST_RANGE)).rev().find(|&take| {
         let words = &words[..take];
@@ -1933,27 +1933,27 @@ mod tests {
     }
 
     #[test]
-    fn a_range_is_worth_nothing() {
-        // No number, so no scaling, no conversion and no number on the
-        // shopping list (ADR 0016).
+    fn a_range_is_scaled_and_converted_but_never_added_up() {
+        // No single number, so nothing to add up on a shopping list and no
+        // share of a Component (ADR 0016).
         assert_eq!(units::parse_amount("2-3"), None);
-        for scale in [1.0, 2.0] {
-            assert_eq!(
-                units::measured_line(
-                    Some("½-1"),
-                    Some("cup"),
-                    scale,
-                    units::Measures::Metric,
-                    "en",
-                    None
-                ),
-                None
-            );
-        }
         assert_eq!(
             units::how_much_of(Some("2-3"), Some("cups"), Some("4"), Some("cups")),
             None
         );
+        // Beneath the line it scales and converts at both ends (ADR 0060).
+        let beneath = |scale| {
+            units::measured_line(
+                Some("½-1"),
+                Some("cup"),
+                scale,
+                units::Measures::Metric,
+                "en",
+                None,
+            )
+        };
+        assert_eq!(beneath(1.0), Some("about 120-240 ml".into()));
+        assert_eq!(beneath(2.0), Some("about 240-470 ml".into()));
     }
 
     #[test]

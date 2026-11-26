@@ -23701,18 +23701,31 @@ async fn a_steps_amounts_reach_the_reader_converted_and_scaled_beside_the_text()
         doubled["steps"][0],
         json!([
             { "written": "425°", "measured": "about 220 °C" },
-            { "written": "1 lb.", "measured": doubled["ingredients"][0] },
+            { "written": "1 lb.", "measured": "about 905 g" },
         ]),
         "the oven does not scale; the chicken does"
     );
+    // The step says the same figure the list does. The list's line is the
+    // whole line at the new amount (#680), and the step's addition only the
+    // figure, beside the step's own words.
     assert_eq!(
         doubled["steps"][3],
         json!([
-            { "written": "1½ cups", "measured": doubled["ingredients"][5] },
-            { "written": "8 oz.", "measured": doubled["ingredients"][6] },
+            { "written": "1½ cups", "measured": "about 710 ml" },
+            { "written": "8 oz.", "measured": "about 455 g" },
         ])
     );
-    assert_eq!(doubled["ingredients"][0], json!("about 905 g"));
+    assert_eq!(
+        [&doubled["ingredients"][5], &doubled["ingredients"][6]],
+        [
+            &json!("about 710 ml homemade or store-bought marinara sauce"),
+            &json!("about 455 g mozzarella, coarsely grated")
+        ]
+    );
+    assert_eq!(
+        doubled["ingredients"][0],
+        json!("about 905 g ground chicken")
+    );
 
     // The Food need not follow the Unit at once: the one named soonest after
     // it is what the amount measures, so this cup is a cup of flour and weighs
@@ -23775,7 +23788,7 @@ async fn a_steps_amounts_reach_the_reader_converted_and_scaled_beside_the_text()
     );
     assert_eq!(
         scaled["result"]["versions"][0]["measured"]["steps"],
-        json!([[{ "written": "200 g", "measured": "about 400 g" }]])
+        json!([[{ "written": "200 g", "measured": "400 g" }]])
     );
 
     // An agent asks the MCP Door and gets the same answer.
@@ -23790,6 +23803,85 @@ async fn a_steps_amounts_reach_the_reader_converted_and_scaled_beside_the_text()
     assert_eq!(
         over_mcp["result"]["structuredContent"]["versions"][0]["measured"]["steps"],
         *steps
+    );
+}
+
+/// **A scaled line reads whole** (#680). Cooked at another Yield, the line
+/// beneath an Ingredient Line is the line itself at the new amount, so the
+/// cooking screen, which leads with it, still says what it is an amount of.
+/// A range scales at both ends, "about" is said only where Kamosu rounded or
+/// converted, and a line with no amount has nothing beneath it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_scaled_line_reads_whole_with_its_food_and_its_range() {
+    let app = support::spawn_app();
+    let (_person, key, _) = person_with_kitchen(&app, "Hélène");
+    app.post_op(
+        "set_reading_preferences",
+        Some(&key),
+        &json!({ "reading_language": "en", "reading_measures": "metric" }).to_string(),
+    );
+    let (_, created) = app.post_op(
+        "create_recipe",
+        Some(&key),
+        &json!({
+            "title": "Tomato soup",
+            "yield": { "amount": "4", "noun": "servings" },
+            "ingredients": [
+                { "kind": "ingredient", "text": "500-700 g cherry tomatoes" },
+                { "kind": "ingredient", "text": "1 head of garlic" },
+                { "kind": "ingredient", "text": "1 yellow onion" },
+                { "kind": "ingredient", "text": "olive oil" },
+                { "kind": "ingredient", "text": "½ cup full fat canned coconut milk" },
+                { "kind": "ingredient", "text": "2 tablespoons butter" },
+            ],
+            "steps": [{ "kind": "step", "text": "Roast everything." }],
+        })
+        .to_string(),
+    );
+    let branch_id = created["result"]["branch_id"].as_str().unwrap();
+
+    // As written, a conversion is still the short line beside the line.
+    assert_eq!(
+        created["result"]["versions"][0]["measured"]["ingredients"],
+        json!([null, null, null, null, "about 120 ml", "about 28 g"])
+    );
+
+    let (_, scaled) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({
+            "branch_id": branch_id,
+            "wanted_yield": { "amount": "6", "noun": "servings" },
+        })
+        .to_string(),
+    );
+    assert_eq!(
+        scaled["result"]["versions"][0]["measured"]["ingredients"],
+        json!([
+            "750-1050 g cherry tomatoes",
+            "1½ heads of garlic",
+            "1½ yellow onions",
+            null,
+            "about 180 ml full fat canned coconut milk",
+            "about 43 g butter",
+        ]),
+        "{scaled}"
+    );
+
+    // Halved, the counted word goes back to one.
+    let (_, halved) = app.post_op(
+        "get_recipe",
+        Some(&key),
+        &json!({
+            "branch_id": branch_id,
+            "wanted_yield": { "amount": "2", "noun": "servings" },
+        })
+        .to_string(),
+    );
+    assert_eq!(
+        halved["result"]["versions"][0]["measured"]["ingredients"][1],
+        json!("½ head of garlic"),
+        "{halved}"
     );
 }
 
@@ -23940,14 +24032,15 @@ async fn the_one_line_scales_to_the_yield_being_cooked_and_still_never_two() {
     assert_eq!(
         measured_ingredients(&app, &key, &branch_id),
         json!([
-            // Scaled AND converted, in one line: 4 cups of flour at 125 g.
-            "about 500 g",
+            // Scaled AND converted, in one line: 4 cups of flour at 125 g,
+            // and the line whole, so it still says what it is (#680).
+            "about 500 g flour",
             // Scaled but not converted — she already measures in grams. Same
-            // one slot, and nothing on screen says which of the two happened.
-            "about 500 g",
+            // one slot, and exact, so no "about" (#680).
+            "500 g butter",
             // An unrecognised Unit still scales: the quantity multiplies and
             // the cook's own word is untouched (ADR 0016).
-            "about 4 poignée",
+            "4 poignées de sucre",
             // **And a line with no Reading scales unchanged** (#44): there is
             // no number here to double, so the line is simply the line.
             null,
@@ -24077,7 +24170,7 @@ async fn a_recipe_page_reads_at_the_yield_it_names_and_stores_none_of_it() {
             Some(json!({ "amount": "8", "noun": "servings" }))
         ),
         json!({
-            "measured": ["about 500 g", "about 500 g", null],
+            "measured": ["about 500 g flour", "500 g butter", null],
             "scaled_to": { "amount": "8", "noun": "servings" },
         }),
     );
@@ -24165,7 +24258,7 @@ async fn a_recipe_that_never_said_what_it_makes_is_cooked_at_a_multiplier() {
     assert_eq!(advanced["result"]["cooking_yield"], twice);
     assert_eq!(
         read_at(&app, &key, &branch_id, None),
-        json!({ "measured": ["about 500 g", "about 500 g", null], "scaled_to": twice }),
+        json!({ "measured": ["about 500 g flour", "500 g butter", null], "scaled_to": twice }),
     );
 
     // A multiplier Kamosu cannot read would scale nothing while claiming to.
@@ -25446,7 +25539,7 @@ async fn the_amounts_a_step_uses_carry_the_one_subordinate_line_already_worked_o
     );
     assert_eq!(
         version["measured"]["ingredients"][panko],
-        json!("about 470 ml"),
+        json!("about 470 ml panko"),
         "two cups of panko for a doubled cook, in this reader's measures — one \
          slot doing scaling and conversion together (#49). Millilitres rather \
          than grams because panko has no Cup Weight, which ADR 0016 calls a line \
@@ -30263,7 +30356,7 @@ async fn a_component_is_an_ingredient_whose_reading_names_a_recipe_and_it_arrive
     assert_eq!(written, ["600 g tipo 00 flour", "390 ml cold water"]);
     assert_eq!(
         dough["measured"]["ingredients"],
-        json!(["about 300 g", "about 200 ml"]),
+        json!(["300 g tipo 00 flour", "about 200 ml cold water"]),
         "the dough arrives halved, worded by the same code as every other line"
     );
 
@@ -31060,7 +31153,7 @@ async fn scaling_the_outer_recipe_carries_into_how_much_of_the_component_is_want
     );
     assert_eq!(
         at_rest[0]["measured"]["ingredients"],
-        json!(["about 300 g"])
+        json!(["300 g tipo 00 flour"])
     );
 
     // Now cook four pizzas instead of two. An In Progress Attempt at another
@@ -37923,7 +38016,7 @@ async fn a_sheet_carries_the_recipe_and_leaves_the_library_behind() {
         "Neapolitan Pizza Dough",
         "½ of the recipe",
         "600 g tipo 00 flour",
-        "about 300 g",
+        "300 g tipo 00 flour",
         "Knead for ten minutes.",
         // Where it came from: the Version's name, the bare Hand.
         "Less cheese, written",
@@ -37999,7 +38092,7 @@ async fn a_scaled_sheet_prints_the_written_line_and_the_scaled_amount_beneath_it
         "{text}"
     );
     assert!(
-        compact(&text).contains("125gmozzarellaabout250g"),
+        compact(&text).contains("125gmozzarella250gmozzarella"),
         "the written line, then the scaled amount beneath it: {text}"
     );
     assert!(
@@ -38032,7 +38125,10 @@ async fn a_sheet_prints_the_yield_the_recipe_page_is_scaled_to() {
         text.contains("Scaled to 4 pizzas — as written, makes 2"),
         "{text}"
     );
-    assert!(compact(&text).contains("125gmozzarellaabout250g"), "{text}");
+    assert!(
+        compact(&text).contains("125gmozzarella250gmozzarella"),
+        "{text}"
+    );
 
     // A multiplier says it is one, rather than "scaled to 3" of nothing.
     let (_result, _type, text) = a_sheet(
@@ -38042,7 +38138,10 @@ async fn a_sheet_prints_the_yield_the_recipe_page_is_scaled_to() {
         json!({ "branch_id": pizza, "wanted_yield": { "amount": "3", "noun": "" } }),
     );
     assert!(text.contains("Scaled ×3"), "{text}");
-    assert!(compact(&text).contains("125gmozzarellaabout375g"), "{text}");
+    assert!(
+        compact(&text).contains("125gmozzarella375gmozzarella"),
+        "{text}"
+    );
 }
 
 /// **A stranger holding a Share Link is offered a Sheet too** (ADR 0023): no
@@ -38072,7 +38171,7 @@ async fn a_stranger_with_a_share_link_gets_a_sheet_without_an_account() {
         "125 g mozzarella",
         "Neapolitan Pizza Dough",
         "½ of the recipe",
-        "about 300 g",
+        "300 g tipo 00 flour",
     ] {
         assert!(
             text.contains(on_the_page),

@@ -1308,7 +1308,9 @@ describe('the recipe screen', () => {
 							...plain.versions[0],
 							scaled_to: { amount: wanted.amount, noun: 'servings' },
 							measured: {
-								ingredients: [null, 'about 2.8 kg', null, null, 'about 6 tbsp'],
+								// The Core's whole line at the new amount (#680). The ketchup
+								// has an amount this answer could not scale.
+								ingredients: [null, '2.8 kg whole chicken', null, null, null],
 								steps: SECTIONED_STEPS.map(() => null),
 							},
 						},
@@ -1340,10 +1342,13 @@ describe('the recipe screen', () => {
 		expect(await screen.findByText('Amounts for 8 servings')).toBeInTheDocument();
 		// Every figure is the Core's, beneath the recipe's own unchanged line.
 		expect(screen.getByText('1.4 kg whole chicken')).toBeInTheDocument();
-		expect(screen.getByText('about 2.8 kg')).toBeInTheDocument();
-		// The line with nothing to scale says so, rather than standing silent
-		// under a heading that says every amount is for eight.
-		expect(screen.getByText('kept as written')).toBeInTheDocument();
+		expect(screen.getByText('2.8 kg whole chicken')).toBeInTheDocument();
+		// The line with an amount Kamosu could not scale says so, rather than
+		// standing silent under a heading that says every amount is for eight.
+		// The oil has no amount to scale, so nothing is said under it (#680).
+		const kept = screen.getAllByText('kept as written');
+		expect(kept).toHaveLength(1);
+		expect(kept[0].parentElement?.textContent).toContain('3 tbsp Ketchup');
 		// And nothing was written for having looked.
 		const wrote = kamosu.calls.map((call) => call.operation);
 		expect(wrote).not.toContain('save_recipe_version');

@@ -659,25 +659,454 @@ pub fn measured_line_in(
     language: &str,
     cup_weight_grams: Option<f64>,
 ) -> Option<String> {
-    let quantity = parse_amount(amount?)?;
-    if !scale.is_finite() || scale <= 0.0 {
-        return None;
-    }
-    let scaled = quantity * scale;
-    let source = unit.and_then(|unit| words::of(written_in_language).unit(unit));
-
-    let measured = convert(scaled, source, unit, measures, cup_weight_grams);
-
+    let figure = figure_in(
+        written_in_language,
+        amount?,
+        unit,
+        scale,
+        measures,
+        cup_weight_grams,
+    )?;
     // Absent whenever it would only repeat the line unchanged: same Unit, same
-    // number. The comparison is on the rounded figure, because that is the one
-    // a reader would be comparing against the line above.
-    let unchanged = measured.unit.map(|u| u.id) == source.map(|u| u.id)
-        && round_to(measured.quantity, measured.unit) == round_to(quantity, source);
-    if unchanged {
+    // number.
+    if figure.unchanged {
         return None;
     }
+    let number = figure.number(language);
+    let unit = figure.unit_word(language);
+    let said = if unit.is_empty() {
+        number
+    } else {
+        format!("{number} {unit}")
+    };
+    Some(figure.about_if_due(said, language))
+}
 
-    Some(word_it(measured, language))
+/// **An Ingredient Line read whole at another Yield** (#680): the written line
+/// with its amount scaled, and its Unit too where the reader's measures
+/// converted it, so `1 head of garlic` at half again is `1½ heads of garlic`.
+///
+/// It stands in for the line wherever a screen leads with the scaled amount,
+/// as the cooking screen does, so it has to say what it is an amount of. The
+/// short [`measured_line_in`] was written to sit beside the line and says only
+/// the figure.
+///
+/// The word that counts goes plural or singular with the new number in
+/// English: the Unit's own word where the line has one (`head`, `tablespoon`),
+/// and otherwise the Food's last word (`onion`). A Unit of the closed set
+/// changes only where the line spells its name out, so `tbsp` stays `tbsp`.
+/// Other Languages keep their words as written.
+///
+/// Where the amount cannot be found in the line, as after a Reading corrected
+/// by hand, the figure is followed by the Food. Nothing is answered where the
+/// amount could not be read.
+#[allow(clippy::too_many_arguments)]
+pub fn scaled_line_in(
+    text: &str,
+    written_in_language: &str,
+    amount: Option<&str>,
+    unit: Option<&str>,
+    target: Option<&str>,
+    scale: f64,
+    measures: Measures,
+    language: &str,
+    cup_weight_grams: Option<f64>,
+) -> Option<String> {
+    let amount = amount?;
+    let figure = figure_in(
+        written_in_language,
+        amount,
+        unit,
+        scale,
+        measures,
+        cup_weight_grams,
+    )?;
+    let number = figure.number(language);
+    let english = written_in_language == "en";
+    let now_plural = plural(figure.rounded_high(), written_in_language);
+    let was_plural = plural(figure.written_high, written_in_language);
+    let recount = |word: &str| -> String {
+        if !english || now_plural == was_plural {
+            word.to_string()
+        } else if now_plural {
+            english_plural(word)
+        } else {
+            english_singular(word)
+        }
+    };
+
+    let Some(at) = amount_at(text, amount) else {
+        let said = match target {
+            Some(target) => format!("{number} {} {target}", figure.unit_word(language)),
+            None => format!("{number} {}", figure.unit_word(language)),
+        };
+        let said = said.split_whitespace().collect::<Vec<_>>().join(" ");
+        return Some(figure.about_if_due(said, language));
+    };
+    let before = &text[..at];
+    let mut rest = text[at + amount.len()..].to_string();
+
+    // The Unit, where the line writes it straight after the amount, or a
+    // word or two later, `2 (heaped) tbsp flour`.
+    let mut unit_said = String::new();
+    if let Some(unit) = unit {
+        let gap = rest.len() - rest.trim_start().len();
+        if rest[gap..].starts_with(unit) {
+            unit_said = if figure.converted {
+                figure.unit_word(language)
+            } else if figure.source.is_none_or(|source| spells_out(unit, source)) {
+                // A Unit of the closed set is counted only where the line
+                // spells its name out: `tbsp` has no plural, `tablespoon` has.
+                recount(unit)
+            } else {
+                unit.to_string()
+            };
+            rest.replace_range(..gap + unit.len(), "");
+        } else if figure.converted {
+            unit_said = figure.unit_word(language);
+            if let Some(later) = word_at(&rest, unit, true) {
+                let end = later + unit.len();
+                let start = rest[..later].trim_end().len();
+                rest.replace_range(start..end, "");
+            }
+        }
+    } else if figure.converted {
+        unit_said = figure.unit_word(language);
+    }
+
+    // A measure the line restates, `(240 ml)` or `/ 0.9-1 lb`, would now say
+    // a different amount from the one just scaled, so it goes. Only after a
+    // Unit of the closed set: `1 can (14 oz)` is the size of the can.
+    if figure.source.is_some() {
+        rest = without_restated_measures(&rest, written_in_language);
+    }
+
+    // With no Unit, the Food is what is counted: `1 yellow onion`.
+    if unit.is_none()
+        && let Some(target) = target
+        && let Some(found) = word_at(&rest, target, false)
+    {
+        let last = target
+            .char_indices()
+            .rfind(|(_, c)| c.is_whitespace())
+            .map_or(found, |(space, c)| found + space + c.len_utf8());
+        // The whole word the line writes, so a Food read as `egg` on the
+        // line `2 eggs` counts `eggs`.
+        let end = rest[last..]
+            .find(|c: char| !c.is_alphanumeric())
+            .map_or(rest.len(), |length| last + length);
+        let counted = recount(&rest[last..end]);
+        rest.replace_range(last..end, &counted);
+    }
+
+    let figure_said = if unit_said.is_empty() {
+        number
+    } else {
+        format!("{number} {unit_said}")
+    };
+    let figure_said = figure.about_if_due(figure_said, language);
+    Some(format!("{before}{figure_said}{rest}"))
+}
+
+/// Where `amount` stands in the line as a number of its own: not inside
+/// `10`, `1½` or `T45`.
+///
+/// A number inside brackets is no candidate: the line reader reads none
+/// there, so `(serves 4) 4 eggs` scales the eggs.
+fn amount_at(text: &str, amount: &str) -> Option<usize> {
+    text.match_indices(amount).map(|(at, _)| at).find(|&at| {
+        let depth: i32 = text[..at]
+            .chars()
+            .map(|c| match c {
+                '(' | '[' | '{' => 1,
+                ')' | ']' | '}' => -1,
+                _ => 0,
+            })
+            .sum();
+        if depth > 0 {
+            return false;
+        }
+        let before = text[..at].chars().next_back();
+        let after = text[at + amount.len()..].chars().next();
+        !before.is_some_and(|c| c.is_alphanumeric() || c == '.' || c == ',')
+            && !after.is_some_and(|c| {
+                c.is_alphanumeric() || FRACTIONS.iter().any(|(glyph, _)| *glyph == c)
+            })
+    })
+}
+
+/// Where `words` start in `text` as whole words, first from the left.
+///
+/// The end is free where the words end in a letter the line may go on
+/// after, as the plural `eggs` does after the Food `egg`: [`scaled_line_in`]
+/// counts the whole word. `ends` asks for the end to be a boundary too.
+fn word_at(text: &str, words: &str, ends: bool) -> Option<usize> {
+    text.match_indices(words).map(|(at, _)| at).find(|&at| {
+        let starts = !text[..at]
+            .chars()
+            .next_back()
+            .is_some_and(char::is_alphanumeric);
+        let ended = !ends
+            || !text[at + words.len()..]
+                .chars()
+                .next()
+                .is_some_and(char::is_alphanumeric);
+        starts && ended
+    })
+}
+
+/// Whether the line spells a Unit of the closed set out in full, `tablespoon`
+/// or `liters`, rather than abbreviating it as `tbsp` or `l`.
+fn spells_out(written: &str, unit: &Unit) -> bool {
+    let named = english_singular(&written.to_lowercase());
+    let american = unit.id.strip_suffix("re").map(|stem| format!("{stem}er"));
+    named == unit.id || american.is_some_and(|american| named == american)
+}
+
+/// `rest` with every measure in it that only restates the line's own amount
+/// taken out: a bracketed `(240 ml)` or `(about 1½ cups)`, and `/ 0.9-1 lb`
+/// straight after the Unit.
+fn without_restated_measures(rest: &str, language: &str) -> String {
+    let mut out = rest.to_string();
+    // A slash straight after the Unit restates it.
+    let trimmed = out.trim_start();
+    if let Some(after) = trimmed.strip_prefix('/') {
+        let words: Vec<(usize, &str)> = word_spans(after);
+        let texts: Vec<&str> = words.iter().map(|(_, word)| *word).collect();
+        if let Some(taken) = measure_words(language, &texts) {
+            let (start, word) = words[taken - 1];
+            let end = out.len() - trimmed.len() + 1 + start + word.len();
+            out.replace_range(..end, "");
+        }
+    }
+    // Every bracketed aside that is a measure and nothing else.
+    let mut from = 0;
+    while let Some(open) = out[from..].find('(').map(|at| from + at) {
+        let Some(close) = out[open..].find(')').map(|at| open + at) else {
+            break;
+        };
+        let inner: Vec<&str> = out[open + 1..close].split_whitespace().collect();
+        // `about` or `approx.` may come before the figure, and nothing else:
+        // `(plus 2 tbsp)` says something more.
+        let figure_starts = usize::from(
+            inner
+                .first()
+                .is_some_and(|word| words::of(language).approximately.has(word)),
+        );
+        let restates = inner.len() > figure_starts
+            && measure_words(language, &inner[figure_starts..])
+                == Some(inner.len() - figure_starts);
+        if restates {
+            let start = out[..open].trim_end().len();
+            out.replace_range(start..=close, "");
+            from = start;
+        } else {
+            from = close + 1;
+        }
+    }
+    out
+}
+
+/// Each word of `text` with the byte where it starts.
+fn word_spans(text: &str) -> Vec<(usize, &str)> {
+    text.split_whitespace()
+        .map(|word| (word.as_ptr() as usize - text.as_ptr() as usize, word))
+        .collect()
+}
+
+/// How many leading words are an amount and a Unit of the closed set,
+/// `240 ml` or `0.9-1 lb`, or nothing where they are not.
+fn measure_words(language: &str, words: &[&str]) -> Option<usize> {
+    let lists = words::of(language);
+    (1..=words.len().min(3)).rev().find_map(|amount| {
+        let figure = words[..amount].join(" ");
+        if parse_amount(&figure).is_none() && parse_range_in(language, &figure).is_none() {
+            return None;
+        }
+        (1..=(words.len() - amount).min(2)).rev().find_map(|unit| {
+            let named = words[amount..amount + unit]
+                .join(" ")
+                .trim_end_matches([',', ';', '.'])
+                .to_string();
+            lists.unit(&named).map(|_| amount + unit)
+        })
+    })
+}
+
+/// **One amount, scaled and converted, before it is worded.** A range keeps
+/// both its ends, each in the Unit the larger one is worded in.
+struct Figure {
+    low: Option<f64>,
+    high: f64,
+    /// The larger end as written, before scaling.
+    written_high: f64,
+    unit: Option<&'static Unit>,
+    as_written: Option<String>,
+    source: Option<&'static Unit>,
+    /// Into another Unit than the one written.
+    converted: bool,
+    /// Kamosu rounded or converted, so the figure is not exact (#680).
+    about: bool,
+    /// The line already says this, in this Unit and at this number.
+    unchanged: bool,
+}
+
+impl Figure {
+    fn rounded_high(&self) -> f64 {
+        round_to(self.high, self.unit)
+    }
+
+    fn number(&self, language: &str) -> String {
+        let one = |quantity: f64| number_for(round_to(quantity, self.unit), self.unit, language);
+        match self.low {
+            Some(low) => format!("{}-{}", one(low), one(self.high)),
+            None => one(self.high),
+        }
+    }
+
+    fn unit_word(&self, language: &str) -> String {
+        match (&self.unit, &self.as_written) {
+            (Some(unit), _) => display(unit, language, plural(self.rounded_high(), language)),
+            (None, Some(written)) => written.clone(),
+            (None, None) => String::new(),
+        }
+    }
+
+    /// "about" before a figure Kamosu rounded or converted, and nothing
+    /// before one that is exact (#680).
+    fn about_if_due(&self, said: String, language: &str) -> String {
+        if self.about {
+            format!("{} {said}", about(language))
+        } else {
+            said
+        }
+    }
+}
+
+/// [`Figure`] for an amount as written, a single one or a range, or nothing
+/// where it is neither.
+fn figure_in(
+    written_in_language: &str,
+    amount: &str,
+    unit: Option<&str>,
+    scale: f64,
+    measures: Measures,
+    cup_weight_grams: Option<f64>,
+) -> Option<Figure> {
+    let (low, high) = match parse_amount(amount) {
+        Some(quantity) => (None, quantity),
+        None => {
+            let (low, high) = parse_range_in(written_in_language, amount)?;
+            (Some(low), high)
+        }
+    };
+    if !scale.is_finite() || scale <= 0.0 || high <= 0.0 {
+        return None;
+    }
+    let source = unit.and_then(|unit| words::of(written_in_language).unit(unit));
+    let measured = convert(high * scale, source, unit, measures, cup_weight_grams);
+    // Every conversion is a ratio, so the lower end is worth the same share
+    // of the larger one after it as before.
+    let low_measured = low.map(|low| measured.quantity * low / high);
+
+    let converted = measured.unit.map(|u| u.id) != source.map(|u| u.id);
+    let rounded = |quantity: f64| (round_to(quantity, measured.unit) - quantity).abs() > 1e-9;
+    let about = converted || rounded(measured.quantity) || low_measured.is_some_and(rounded);
+    // The comparison is on the rounded figure, because that is the one a
+    // reader would be comparing against the line above.
+    let same = |now: f64, then: f64| round_to(now, measured.unit) == round_to(then, source);
+    let unchanged = !converted
+        && same(measured.quantity, high)
+        && match (low_measured, low) {
+            (Some(now), Some(then)) => same(now, then),
+            _ => true,
+        };
+    Some(Figure {
+        low: low_measured,
+        high: measured.quantity,
+        written_high: high,
+        unit: measured.unit,
+        as_written: measured.as_written,
+        source,
+        converted,
+        about,
+        unchanged,
+    })
+}
+
+/// **A range written as an amount**, `500-700` or `2 to 3`, as its two ends
+/// (ADR 0060). The same test the line reader makes: two amounts joined by a
+/// hyphen, a dash or one of the Language's range words.
+fn parse_range_in(language: &str, text: &str) -> Option<(f64, f64)> {
+    let lists = words::of(language);
+    let parts: Vec<&str> = text.split_whitespace().collect();
+    let joined = parts
+        .iter()
+        .position(|word| lists.amount_ranges.has(word))
+        .map(|at| (parts[..at].join(" "), parts[at + 1..].join(" ")));
+    let (low, high) = joined.or_else(|| {
+        let (low, high) = text.split_once(['-', '\u{2013}', '\u{2014}'])?;
+        Some((low.to_string(), high.to_string()))
+    })?;
+    let (low, high) = (parse_amount(&low)?, parse_amount(&high)?);
+    (low <= high).then_some((low, high))
+}
+
+/// The English plural of the word a line counts with: `head` to `heads`,
+/// `pinch` to `pinches`, `cherry` to `cherries`. The plurals no rule
+/// reaches are words, in the English word file's `irregular` list.
+fn english_plural(word: &str) -> String {
+    let lower = word.to_lowercase();
+    if let Some((many, _)) = words::of("en")
+        .irregular
+        .iter()
+        .find(|(_, one)| **one == lower)
+    {
+        return with_capital_of(word, many);
+    }
+    if ["ss", "sh", "ch", "x", "z"]
+        .iter()
+        .any(|end| lower.ends_with(end))
+    {
+        return format!("{word}es");
+    }
+    if lower.ends_with('s') {
+        return word.to_string();
+    }
+    if let Some(stem) = lower.strip_suffix('y')
+        && stem
+            .chars()
+            .next_back()
+            .is_some_and(|c| !"aeiou".contains(c))
+    {
+        return format!("{}ies", &word[..word.len() - 1]);
+    }
+    format!("{word}s")
+}
+
+/// The other way: `heads` to `head`, `cherries` to `cherry`, and a word that
+/// only ends in an s, `asparagus`, left as it is.
+fn english_singular(word: &str) -> String {
+    let lower = word.to_lowercase();
+    if let Some(one) = words::of("en").irregular.get(&lower) {
+        return with_capital_of(word, one);
+    }
+    if ["ss", "us", "is"].iter().any(|end| lower.ends_with(end)) {
+        return word.to_string();
+    }
+    if lower.len() > 4 && lower.ends_with("ies") {
+        return format!("{}y", &word[..word.len() - 3]);
+    }
+    if ["sses", "shes", "ches", "xes", "zes", "oes"]
+        .iter()
+        .any(|end| lower.ends_with(end))
+    {
+        return word[..word.len() - 2].to_string();
+    }
+    if lower.ends_with('s') {
+        return word[..word.len() - 1].to_string();
+    }
+    word.to_string()
 }
 
 /// Scale, then convert — never the other way round, and never rounding in
@@ -929,11 +1358,12 @@ fn round_to(quantity: f64, unit: Option<&'static Unit>) -> f64 {
 
 /// "about", in the Languages Kamosu words things in.
 ///
-/// It is unconditional. Kamosu rounded, every time, so "about" is true every
-/// time — and a mark that appears *sometimes* teaches people that its absence
-/// is a promise (ADR 0016, and ADR 0015 in a different guise). Spanish uses
-/// *aprox.* rather than *unos*, which would have to agree with a noun this code
-/// does not know the gender of.
+/// A line beneath an Ingredient Line or a Step says it where Kamosu rounded
+/// or converted, and nowhere else (ADR 0060): `1 × 1.5` is exactly `1½`, and
+/// its absence is then a promise Kamosu keeps. A temperature on the oven
+/// ladder and a Shopping Row's sum always say it. Spanish uses *aprox.*
+/// rather than *unos*, which would have to agree with a noun this code does
+/// not know the gender of.
 fn about(language: &str) -> &'static str {
     match language {
         "fr" => "environ",
@@ -1022,19 +1452,33 @@ pub(crate) fn cups_in_millilitres(cups: f64) -> f64 {
     cups * unit_by_id("cup").base
 }
 
-fn word_it(measured: Measured, language: &str) -> String {
-    let quantity = round_to(measured.quantity, measured.unit);
-    // Metric stays whole numbers; the cups in the drawer are marked in
-    // fractions, so an American measure is written the way the cup is marked.
-    let fractional = measured
-        .unit
-        .is_none_or(|unit| unit.system == System::Customary);
+/// `listed` with a capital where `written` opens with one, `Tomatoes`.
+fn with_capital_of(written: &str, listed: &str) -> String {
+    let mut letters = listed.chars();
+    match (written.chars().next(), letters.next()) {
+        (Some(first), Some(head)) if first.is_uppercase() => {
+            head.to_uppercase().chain(letters).collect()
+        }
+        _ => listed.to_string(),
+    }
+}
+
+/// A rounded figure as its reader writes it. Metric stays whole numbers; the
+/// cups in the drawer are marked in fractions, so an American measure, or a
+/// count, is written the way the cup is marked.
+fn number_for(quantity: f64, unit: Option<&'static Unit>, language: &str) -> String {
+    let fractional = unit.is_none_or(|unit| unit.system == System::Customary);
     let number = if fractional {
         as_fraction(quantity)
     } else {
         as_decimal(quantity)
     };
-    let number = with_decimal_mark(number, language);
+    with_decimal_mark(number, language)
+}
+
+fn word_it(measured: Measured, language: &str) -> String {
+    let quantity = round_to(measured.quantity, measured.unit);
+    let number = number_for(quantity, measured.unit, language);
     let unit = match (&measured.unit, &measured.as_written) {
         (Some(unit), _) => display(unit, language, plural(quantity, language)),
         // The cook's own word, exactly as written.
@@ -2114,6 +2558,236 @@ mod tests {
                 None
             );
         }
+    }
+
+    /// A scaled line reads whole (#680), its counted word in step with the
+    /// new number where English has a rule for it.
+    #[test]
+    fn a_scaled_line_keeps_what_it_is_an_amount_of() {
+        let line = |text: &str, amount, unit, target, scale| {
+            scaled_line_in(
+                text,
+                "en",
+                Some(amount),
+                unit,
+                target,
+                scale,
+                Measures::Us,
+                "en",
+                None,
+            )
+        };
+        assert_eq!(
+            line(
+                "2 tablespoons butter",
+                "2",
+                Some("tablespoons"),
+                Some("butter"),
+                0.5
+            ),
+            Some("1 tablespoon butter".into())
+        );
+        assert_eq!(
+            line("1 tbsp oil", "1", Some("tbsp"), Some("oil"), 2.0),
+            Some("2 tbsp oil".into()),
+            "an abbreviation has no plural"
+        );
+        assert_eq!(
+            line(
+                "2 to 3 cloves garlic",
+                "2 to 3",
+                Some("cloves"),
+                Some("garlic"),
+                2.0
+            ),
+            Some("4-6 cloves garlic".into())
+        );
+        assert_eq!(
+            line("1 pinch of salt", "1", Some("pinch"), Some("salt"), 3.0),
+            Some("3 pinches of salt".into())
+        );
+        assert_eq!(
+            line("2 large eggs, beaten", "2", None, Some("eggs"), 0.5),
+            Some("1 large egg, beaten".into())
+        );
+        assert_eq!(
+            line("1 tsp salt", "1", Some("tsp"), Some("salt"), 1.1),
+            Some("about 1 tsp salt".into()),
+            "rounded back to the written figure, and still said whole"
+        );
+        // A Reading corrected by hand to an amount the line does not write.
+        assert_eq!(
+            line(
+                "a handful of basil",
+                "1",
+                Some("handful"),
+                Some("basil"),
+                2.0
+            ),
+            Some("2 handful basil".into())
+        );
+        assert_eq!(line("salt to taste", "some", None, Some("salt"), 2.0), None);
+
+        // The Tomato soup's lines, at six servings for four (#680).
+        assert_eq!(
+            line("1 head of garlic", "1", Some("head"), Some("garlic"), 1.5),
+            Some("1½ heads of garlic".into())
+        );
+        assert_eq!(
+            line("1 yellow onion", "1", None, Some("yellow onion"), 1.5),
+            Some("1½ yellow onions".into())
+        );
+        assert_eq!(
+            line(
+                "500-700 g cherry tomatoes",
+                "500-700",
+                Some("g"),
+                Some("cherry tomatoes"),
+                1.5
+            ),
+            Some("about 1¾-2¼ lb cherry tomatoes".into()),
+            "a range converts at both ends for an American reader too"
+        );
+
+        // The words counted anew.
+        for (text, target, scale, said) in [
+            ("2 cookies", "cookies", 0.5, "1 cookie"),
+            ("2 pies", "pies", 0.5, "1 pie"),
+            ("2 mangoes", "mangoes", 0.5, "1 mango"),
+            ("2 asparagus", "asparagus", 0.5, "1 asparagus"),
+            ("1 tomato", "tomato", 2.0, "2 tomatoes"),
+            ("1 cherry", "cherry", 2.0, "2 cherries"),
+            ("2 eggs", "egg", 0.5, "1 egg"),
+        ] {
+            assert_eq!(
+                line(
+                    text,
+                    text.split(' ').next().unwrap(),
+                    None,
+                    Some(target),
+                    scale
+                ),
+                Some(said.to_string())
+            );
+        }
+        // The amount is a number of its own, not the 1 inside 10.
+        assert_eq!(
+            line(
+                "10 cm ginger, 1 piece",
+                "1",
+                Some("piece"),
+                Some("ginger"),
+                2.0
+            ),
+            Some("10 cm ginger, 2 pieces".into())
+        );
+    }
+
+    /// A measure the line restates says the same amount scaled, so it goes
+    /// rather than contradict the figure before it (#680). The size of an
+    /// open Unit, `1 can (14 oz)`, is no restatement and stays.
+    #[test]
+    fn a_scaled_line_drops_a_measure_it_only_restated() {
+        let metric = |text: &str, amount, unit, target| {
+            scaled_line_in(
+                text,
+                "en",
+                Some(amount),
+                Some(unit),
+                Some(target),
+                2.0,
+                Measures::Metric,
+                "en",
+                None,
+            )
+        };
+        assert_eq!(
+            metric("1 cup (240 ml) milk", "1", "cup", "milk"),
+            Some("about 470 ml milk".into())
+        );
+        assert_eq!(
+            metric("400-450 g / 0.9-1 lb onions", "400-450", "g", "onions"),
+            Some("800-900 g onions".into())
+        );
+        assert_eq!(
+            metric(
+                "8 oz. mozzarella, coarsely grated (about 1–1½ cups)",
+                "8",
+                "oz.",
+                "mozzarella"
+            ),
+            Some("about 455 g mozzarella, coarsely grated".into())
+        );
+        assert_eq!(
+            metric("2 (heaped) tbsp flour", "2", "tbsp", "flour"),
+            Some("about 60 ml (heaped) flour".into()),
+            "the Unit converted is said once"
+        );
+        assert_eq!(
+            metric("1 can (14 oz) tomatoes", "1", "can", "tomatoes"),
+            Some("2 cans (14 oz) tomatoes".into())
+        );
+        assert_eq!(
+            metric("1 cup (plus 2 tbsp) milk", "1", "cup", "milk"),
+            Some("about 470 ml (plus 2 tbsp) milk".into()),
+            "a measure that adds to the amount is no restatement"
+        );
+    }
+
+    /// The lines a Reading set by hand, or a bracket, could trip (#680).
+    #[test]
+    fn a_scaled_line_survives_what_a_cook_can_type() {
+        let us = |text: &str, amount, unit, target: &str, scale| {
+            scaled_line_in(
+                text,
+                "en",
+                Some(amount),
+                unit,
+                Some(target),
+                scale,
+                Measures::Us,
+                "en",
+                None,
+            )
+        };
+        assert_eq!(
+            us("2 spring\u{a0}onions", "2", None, "spring\u{a0}onion", 0.5),
+            Some("1 spring\u{a0}onion".into()),
+            "a Food set by hand with a non-breaking space"
+        );
+        assert_eq!(
+            us("(serves 4) 4 eggs", "4", None, "eggs", 0.5),
+            Some("(serves 4) 2 eggs".into())
+        );
+        assert_eq!(
+            us("1 Tomato", "1", None, "Tomato", 2.0),
+            Some("2 Tomatoes".into())
+        );
+    }
+
+    /// "about" says Kamosu rounded or converted, and only then (#680).
+    #[test]
+    fn about_marks_a_rounded_or_converted_figure_only() {
+        let line = |amount, unit, scale, measures| {
+            measured_line(Some(amount), unit, scale, measures, "en", None)
+        };
+        assert_eq!(
+            line("1", Some("cup"), 1.5, Measures::Us),
+            Some("1½ cups".into())
+        );
+        assert_eq!(
+            line("1", Some("tsp"), 1.3, Measures::Us),
+            Some("about 1¼ tsp".into())
+        );
+        assert_eq!(
+            line("1", Some("cup"), 1.0, Measures::Metric),
+            Some("about 240 ml".into())
+        );
+        assert_eq!(
+            line("1-2", Some("cups"), 1.0, Measures::Metric),
+            Some("about 240-470 ml".into()),
+            "a range converts at both ends"
+        );
     }
 
     #[test]
