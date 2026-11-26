@@ -907,6 +907,129 @@ describe('photographing the cooking (#77)', () => {
 		expect(screen.queryByText('kept as written')).toBeNull();
 	});
 
+	/**
+	 * Cook at eight servings and write `2 cups panko` over the recipe's line,
+	 * the Core answering with the As Cooked measured as `measuredFor` says (#713).
+	 */
+	/** The Attempt the Core answers once it holds `2 cups panko` (#713). */
+	function pankoCookedAtEight(measuredFor: { amount: string; noun: string } | null) {
+		// The editor holds the recipe's own amounts, so `2 cups panko` written
+		// at eight servings of a recipe for four is four cups, and the Core says
+		// so on the Attempt it answers the write with.
+		const ingredients = INGREDIENTS.map((line) =>
+			line.text === '1 cup panko' ? { ...line, text: '2 cups panko' } : line,
+		);
+		const recipe = scaledTo('8', 'servings').versions[0].content;
+		return attempt({
+			current_step_index: 1,
+			cooking_yield: { amount: '8', noun: 'servings' },
+			as_cooked: {
+				version_id: 'v_cooked',
+				content: { ...recipe, ingredients },
+				against: { ingredients: [], steps: [] },
+				promotion_declined: false,
+				readings: [
+					null,
+					{ amount: '2', unit: null, target: 'chicken', lineage_id: null },
+					{ amount: '2', unit: 'cups', target: 'panko', lineage_id: null },
+					{ amount: '800', unit: 'ml', target: 'water', lineage_id: null },
+					null,
+				],
+				measured: {
+					ingredients: [null, null, 'about 960 g panko', '1.6 l water', null],
+					scaled_to: measuredFor,
+				},
+			},
+		});
+	}
+
+	async function changePankoAtEight(
+		measuredFor: { amount: string; noun: string } | null,
+		over: Answers = {},
+	) {
+		const kamosu = await cook({
+			start_attempt: attempt({
+				current_step_index: 1,
+				cooking_yield: { amount: '8', noun: 'servings' },
+			}),
+			get_recipe: scaledTo('8', 'servings'),
+			set_as_cooked: pankoCookedAtEight(measuredFor),
+			...over,
+		});
+		await fireEvent.click(await screen.findByRole('button', { name: /note a change/i }));
+		await fireEvent.input(
+			await screen.findByDisplayValue(
+				(_, node) => (node as HTMLInputElement)?.value === '1 cup panko',
+			),
+			{ target: { value: '2 cups panko' } },
+		);
+		await fireEvent.click(await screen.findByRole('button', { name: /^done$/i }));
+		return kamosu;
+	}
+
+	it('scales a line the cook changed, as the Core measured it (#713)', async () => {
+		await changePankoAtEight({ amount: '8', noun: 'servings' });
+
+		// The cook's own line scaled leads, their words beneath it, and the
+		// recipe's line struck under those, as before.
+		expect(await exactly('about 960 g panko')).toHaveClass('text-panel-figure');
+		expect(screen.getByText('2 cups panko')).toHaveClass('text-step-reading');
+		expect(screen.queryByText('recipe: 2 cups panko')).not.toBeInTheDocument();
+		expect(screen.getByText('1 cup panko')).toHaveClass('line-through');
+		// The recipe's own line scaled describes what the recipe asked for.
+		expect(screen.queryByText('about 480 g panko')).not.toBeInTheDocument();
+	});
+
+	it('keeps the measured line when a move answers from before the save (#713)', async () => {
+		// `save` and the move go out together, and the move's answer can carry
+		// the As Cooked as it stood before the save landed.
+		const kamosu = await changePankoAtEight(
+			{ amount: '8', noun: 'servings' },
+			{
+				advance_attempt: attempt({
+					current_step_index: 1,
+					cooking_yield: { amount: '8', noun: 'servings' },
+				}),
+			},
+		);
+		expect(await exactly('about 960 g panko')).toBeInTheDocument();
+		await fireEvent.click(screen.getByRole('button', { name: /tick 2 chicken breasts/i }));
+		await vi.waitFor(() =>
+			expect(kamosu.calls.some((call) => call.operation === 'advance_attempt')).toBe(true),
+		);
+		expect(await exactly('about 960 g panko')).toBeInTheDocument();
+	});
+
+	it('takes the cook’s words measured from a later answer after a save held back (#713)', async () => {
+		// A save the outbox held answers with the As Cooked as it was, and the
+		// server's own, with the cook's words, comes on the next move.
+		const kamosu = await changePankoAtEight(null, {
+			set_as_cooked: attempt({
+				current_step_index: 1,
+				cooking_yield: { amount: '8', noun: 'servings' },
+			}),
+			advance_attempt: pankoCookedAtEight({ amount: '8', noun: 'servings' }),
+		});
+		expect(screen.queryByText('about 960 g panko')).not.toBeInTheDocument();
+		await fireEvent.click(screen.getByRole('button', { name: /tick 2 chicken breasts/i }));
+		await vi.waitFor(() =>
+			expect(kamosu.calls.some((call) => call.operation === 'advance_attempt')).toBe(true),
+		);
+		expect(await exactly('about 960 g panko')).toBeInTheDocument();
+	});
+
+	it('says nothing under a changed line measured for another amount (#713)', async () => {
+		// Measured at the recipe as written, while eight servings are cooked:
+		// as after a change of how much made with no network.
+		await changePankoAtEight(null);
+		const line = await exactly('2 cups panko');
+		expect(line).toHaveClass('text-panel-figure');
+		expect(screen.queryByText('about 960 g panko')).not.toBeInTheDocument();
+		// Nor does it claim the line could not be scaled: the Core has not said.
+		const row = line.closest('li') as HTMLElement;
+		expect(within(row).queryByText('kept as written')).not.toBeInTheDocument();
+	});
+
 	it('offers only multipliers where the recipe never said what it makes', async () => {
 		const recipe = answers().get_recipe as GetRecipeOutput;
 		const noYield: GetRecipeOutput = {

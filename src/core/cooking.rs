@@ -779,6 +779,9 @@ impl Core {
                 .map_err(|e| OpError::internal(format!("cannot read the diary: {e}")))?
                 .collect::<Result<_, _>>()
                 .map_err(|e| OpError::internal(format!("cannot read the diary: {e}")))?;
+            for entry in &mut entries {
+                measure_as_cooked(conn, entry)?;
+            }
 
             // Keyed by Lineage *and* the Version cooked, because those are the
             // two things the answer turns on: a Lineage that has left the shelf
@@ -1217,14 +1220,46 @@ fn attempt_photographs(conn: &Connection, attempt_id: &str) -> Result<Vec<String
 }
 
 fn attempt_by_id(conn: &Connection, id: &str) -> Result<Value, OpError> {
-    conn.query_row(
-        &format!("SELECT {ATTEMPT_COLUMNS} FROM attempts WHERE id = ?1"),
-        params![id],
-        attempt_row,
-    )
-    .optional()
-    .map_err(|e| OpError::internal(format!("cannot read Attempt: {e}")))?
-    .ok_or_else(no_such_attempt)
+    let mut attempt = conn
+        .query_row(
+            &format!("SELECT {ATTEMPT_COLUMNS} FROM attempts WHERE id = ?1"),
+            params![id],
+            attempt_row,
+        )
+        .optional()
+        .map_err(|e| OpError::internal(format!("cannot read Attempt: {e}")))?
+        .ok_or_else(no_such_attempt)?;
+    measure_as_cooked(conn, &mut attempt)?;
+    Ok(attempt)
+}
+
+/// Lay beside an Attempt's As Cooked its lines read and measured for its cook,
+/// at the Yield the cooking holds (#713). Nothing where the cooking followed
+/// the recipe. Only the cook is ever served an As Cooked, so the cook is the
+/// reader.
+pub(super) fn measure_as_cooked(conn: &Connection, attempt: &mut Value) -> Result<(), OpError> {
+    if attempt["as_cooked"].is_null() {
+        return Ok(());
+    }
+    let person_id = attempt["person_id"]
+        .as_str()
+        .expect("person_id is always a string");
+    let version_id = attempt["version_id"]
+        .as_str()
+        .expect("version_id is always a string");
+    let measured = as_cooked_measured(
+        conn,
+        version_id,
+        &attempt["as_cooked"]["content"],
+        &Reader::of(conn, person_id)?,
+        &attempt["cooking_yield"],
+    )?;
+    attempt["as_cooked"]["readings"] = json!(measured.readings);
+    attempt["as_cooked"]["measured"] = json!({
+        "ingredients": measured.ingredients,
+        "scaled_to": measured.scaled_to,
+    });
+    Ok(())
 }
 
 /// The recipe one diary entry was cooked from: which Branch it opens, and

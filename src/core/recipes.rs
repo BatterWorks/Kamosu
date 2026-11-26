@@ -2620,8 +2620,7 @@ fn attempts_for_lineage(
             names.insert(person_id.to_string(), person_name(conn, person_id)?);
         }
     }
-    Ok(rows
-        .into_iter()
+    rows.into_iter()
         .filter_map(|mut attempt| {
             let on_the_thread = |id: &Value| {
                 id.as_str()
@@ -2643,7 +2642,11 @@ fn attempts_for_lineage(
             }
             Some(attempt)
         })
-        .collect())
+        .map(|mut attempt| {
+            measure_as_cooked(conn, &mut attempt)?;
+            Ok(attempt)
+        })
+        .collect()
 }
 
 /// How a Lineage has been cooked, as a recipe shows it (#59): how many times,

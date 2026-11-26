@@ -3329,7 +3329,20 @@ export type GetThreadOutput = {
 					noun: string;
 				} | null;
 			};
+			measured: {
+				ingredients: (string | null)[];
+				scaled_to: {
+					amount: string;
+					noun: string;
+				} | null;
+			};
 			promotion_declined: boolean;
+			readings: ({
+				amount: string | null;
+				lineage_id: string | null;
+				target: string | null;
+				unit: string | null;
+			} | null)[];
 			version_id: string;
 		} | null;
 		cooking_yield: {
@@ -4582,7 +4595,20 @@ export type StartAttemptOutput = {
 				noun: string;
 			} | null;
 		};
+		measured: {
+			ingredients: (string | null)[];
+			scaled_to: {
+				amount: string;
+				noun: string;
+			} | null;
+		};
 		promotion_declined: boolean;
+		readings: ({
+			amount: string | null;
+			lineage_id: string | null;
+			target: string | null;
+			unit: string | null;
+		} | null)[];
 		version_id: string;
 	} | null;
 	cooking_yield: {
@@ -4687,7 +4713,20 @@ export type AdvanceAttemptOutput = {
 				noun: string;
 			} | null;
 		};
+		measured: {
+			ingredients: (string | null)[];
+			scaled_to: {
+				amount: string;
+				noun: string;
+			} | null;
+		};
 		promotion_declined: boolean;
+		readings: ({
+			amount: string | null;
+			lineage_id: string | null;
+			target: string | null;
+			unit: string | null;
+		} | null)[];
 		version_id: string;
 	} | null;
 	cooking_yield: {
@@ -4790,7 +4829,20 @@ export type FinishAttemptOutput = {
 				noun: string;
 			} | null;
 		};
+		measured: {
+			ingredients: (string | null)[];
+			scaled_to: {
+				amount: string;
+				noun: string;
+			} | null;
+		};
 		promotion_declined: boolean;
+		readings: ({
+			amount: string | null;
+			lineage_id: string | null;
+			target: string | null;
+			unit: string | null;
+		} | null)[];
 		version_id: string;
 	} | null;
 	cooking_yield: {
@@ -4893,7 +4945,20 @@ export type EditAttemptOutput = {
 				noun: string;
 			} | null;
 		};
+		measured: {
+			ingredients: (string | null)[];
+			scaled_to: {
+				amount: string;
+				noun: string;
+			} | null;
+		};
 		promotion_declined: boolean;
+		readings: ({
+			amount: string | null;
+			lineage_id: string | null;
+			target: string | null;
+			unit: string | null;
+		} | null)[];
 		version_id: string;
 	} | null;
 	cooking_yield: {
@@ -5051,7 +5116,20 @@ export type SetAsCookedOutput = {
 				noun: string;
 			} | null;
 		};
+		measured: {
+			ingredients: (string | null)[];
+			scaled_to: {
+				amount: string;
+				noun: string;
+			} | null;
+		};
 		promotion_declined: boolean;
+		readings: ({
+			amount: string | null;
+			lineage_id: string | null;
+			target: string | null;
+			unit: string | null;
+		} | null)[];
 		version_id: string;
 	} | null;
 	cooking_yield: {
@@ -5149,7 +5227,20 @@ export type DeclinePromotionOutput = {
 				noun: string;
 			} | null;
 		};
+		measured: {
+			ingredients: (string | null)[];
+			scaled_to: {
+				amount: string;
+				noun: string;
+			} | null;
+		};
 		promotion_declined: boolean;
+		readings: ({
+			amount: string | null;
+			lineage_id: string | null;
+			target: string | null;
+			unit: string | null;
+		} | null)[];
 		version_id: string;
 	} | null;
 	cooking_yield: {
@@ -5268,7 +5359,20 @@ export type GetCurrentAttemptOutput = {
 					noun: string;
 				} | null;
 			};
+			measured: {
+				ingredients: (string | null)[];
+				scaled_to: {
+					amount: string;
+					noun: string;
+				} | null;
+			};
 			promotion_declined: boolean;
+			readings: ({
+				amount: string | null;
+				lineage_id: string | null;
+				target: string | null;
+				unit: string | null;
+			} | null)[];
 			version_id: string;
 		} | null;
 		cooking_yield: {
@@ -5365,7 +5469,20 @@ export type ListAttemptsOutput = {
 					noun: string;
 				} | null;
 			};
+			measured: {
+				ingredients: (string | null)[];
+				scaled_to: {
+					amount: string;
+					noun: string;
+				} | null;
+			};
 			promotion_declined: boolean;
+			readings: ({
+				amount: string | null;
+				lineage_id: string | null;
+				target: string | null;
+				unit: string | null;
+			} | null)[];
 			version_id: string;
 		} | null;
 		cooking_yield: {
@@ -23831,8 +23948,90 @@ export const CATALOGUE = [
 										],
 										"type": "object"
 									},
+									"measured": {
+										"additionalProperties": false,
+										"properties": {
+											"ingredients": {
+												"items": {
+													"type": [
+														"string",
+														"null"
+													]
+												},
+												"type": "array"
+											},
+											"scaled_to": {
+												"additionalProperties": false,
+												"properties": {
+													"amount": {
+														"type": "string"
+													},
+													"noun": {
+														"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
+														"type": "string"
+													}
+												},
+												"required": [
+													"amount",
+													"noun"
+												],
+												"type": [
+													"object",
+													"null"
+												]
+											}
+										},
+										"required": [
+											"ingredients",
+											"scaled_to"
+										],
+										"type": "object"
+									},
 									"promotion_declined": {
 										"type": "boolean"
+									},
+									"readings": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"amount": {
+													"type": [
+														"string",
+														"null"
+													]
+												},
+												"lineage_id": {
+													"description": "The Recipe this line names, which makes the Ingredient a Component. It may name a Lineage this instance does not hold — deleted, never received, or held by nobody here — and the line still reads correctly, because the written line was always the truth.",
+													"type": [
+														"string",
+														"null"
+													]
+												},
+												"target": {
+													"type": [
+														"string",
+														"null"
+													]
+												},
+												"unit": {
+													"type": [
+														"string",
+														"null"
+													]
+												}
+											},
+											"required": [
+												"amount",
+												"unit",
+												"target",
+												"lineage_id"
+											],
+											"type": [
+												"object",
+												"null"
+											]
+										},
+										"type": "array"
 									},
 									"version_id": {
 										"type": "string"
@@ -23842,7 +24041,9 @@ export const CATALOGUE = [
 									"version_id",
 									"content",
 									"against",
-									"promotion_declined"
+									"promotion_declined",
+									"readings",
+									"measured"
 								],
 								"type": [
 									"object",
@@ -30500,8 +30701,90 @@ export const CATALOGUE = [
 							],
 							"type": "object"
 						},
+						"measured": {
+							"additionalProperties": false,
+							"properties": {
+								"ingredients": {
+									"items": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"type": "array"
+								},
+								"scaled_to": {
+									"additionalProperties": false,
+									"properties": {
+										"amount": {
+											"type": "string"
+										},
+										"noun": {
+											"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
+											"type": "string"
+										}
+									},
+									"required": [
+										"amount",
+										"noun"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								}
+							},
+							"required": [
+								"ingredients",
+								"scaled_to"
+							],
+							"type": "object"
+						},
 						"promotion_declined": {
 							"type": "boolean"
+						},
+						"readings": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"lineage_id": {
+										"description": "The Recipe this line names, which makes the Ingredient a Component. It may name a Lineage this instance does not hold — deleted, never received, or held by nobody here — and the line still reads correctly, because the written line was always the truth.",
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"target": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"unit": {
+										"type": [
+											"string",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"amount",
+									"unit",
+									"target",
+									"lineage_id"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"type": "array"
 						},
 						"version_id": {
 							"type": "string"
@@ -30511,7 +30794,9 @@ export const CATALOGUE = [
 						"version_id",
 						"content",
 						"against",
-						"promotion_declined"
+						"promotion_declined",
+						"readings",
+						"measured"
 					],
 					"type": [
 						"object",
@@ -31049,8 +31334,90 @@ export const CATALOGUE = [
 							],
 							"type": "object"
 						},
+						"measured": {
+							"additionalProperties": false,
+							"properties": {
+								"ingredients": {
+									"items": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"type": "array"
+								},
+								"scaled_to": {
+									"additionalProperties": false,
+									"properties": {
+										"amount": {
+											"type": "string"
+										},
+										"noun": {
+											"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
+											"type": "string"
+										}
+									},
+									"required": [
+										"amount",
+										"noun"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								}
+							},
+							"required": [
+								"ingredients",
+								"scaled_to"
+							],
+							"type": "object"
+						},
 						"promotion_declined": {
 							"type": "boolean"
+						},
+						"readings": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"lineage_id": {
+										"description": "The Recipe this line names, which makes the Ingredient a Component. It may name a Lineage this instance does not hold — deleted, never received, or held by nobody here — and the line still reads correctly, because the written line was always the truth.",
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"target": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"unit": {
+										"type": [
+											"string",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"amount",
+									"unit",
+									"target",
+									"lineage_id"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"type": "array"
 						},
 						"version_id": {
 							"type": "string"
@@ -31060,7 +31427,9 @@ export const CATALOGUE = [
 						"version_id",
 						"content",
 						"against",
-						"promotion_declined"
+						"promotion_declined",
+						"readings",
+						"measured"
 					],
 					"type": [
 						"object",
@@ -31605,8 +31974,90 @@ export const CATALOGUE = [
 							],
 							"type": "object"
 						},
+						"measured": {
+							"additionalProperties": false,
+							"properties": {
+								"ingredients": {
+									"items": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"type": "array"
+								},
+								"scaled_to": {
+									"additionalProperties": false,
+									"properties": {
+										"amount": {
+											"type": "string"
+										},
+										"noun": {
+											"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
+											"type": "string"
+										}
+									},
+									"required": [
+										"amount",
+										"noun"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								}
+							},
+							"required": [
+								"ingredients",
+								"scaled_to"
+							],
+							"type": "object"
+						},
 						"promotion_declined": {
 							"type": "boolean"
+						},
+						"readings": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"lineage_id": {
+										"description": "The Recipe this line names, which makes the Ingredient a Component. It may name a Lineage this instance does not hold — deleted, never received, or held by nobody here — and the line still reads correctly, because the written line was always the truth.",
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"target": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"unit": {
+										"type": [
+											"string",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"amount",
+									"unit",
+									"target",
+									"lineage_id"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"type": "array"
 						},
 						"version_id": {
 							"type": "string"
@@ -31616,7 +32067,9 @@ export const CATALOGUE = [
 						"version_id",
 						"content",
 						"against",
-						"promotion_declined"
+						"promotion_declined",
+						"readings",
+						"measured"
 					],
 					"type": [
 						"object",
@@ -32161,8 +32614,90 @@ export const CATALOGUE = [
 							],
 							"type": "object"
 						},
+						"measured": {
+							"additionalProperties": false,
+							"properties": {
+								"ingredients": {
+									"items": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"type": "array"
+								},
+								"scaled_to": {
+									"additionalProperties": false,
+									"properties": {
+										"amount": {
+											"type": "string"
+										},
+										"noun": {
+											"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
+											"type": "string"
+										}
+									},
+									"required": [
+										"amount",
+										"noun"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								}
+							},
+							"required": [
+								"ingredients",
+								"scaled_to"
+							],
+							"type": "object"
+						},
 						"promotion_declined": {
 							"type": "boolean"
+						},
+						"readings": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"lineage_id": {
+										"description": "The Recipe this line names, which makes the Ingredient a Component. It may name a Lineage this instance does not hold — deleted, never received, or held by nobody here — and the line still reads correctly, because the written line was always the truth.",
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"target": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"unit": {
+										"type": [
+											"string",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"amount",
+									"unit",
+									"target",
+									"lineage_id"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"type": "array"
 						},
 						"version_id": {
 							"type": "string"
@@ -32172,7 +32707,9 @@ export const CATALOGUE = [
 						"version_id",
 						"content",
 						"against",
-						"promotion_declined"
+						"promotion_declined",
+						"readings",
+						"measured"
 					],
 					"type": [
 						"object",
@@ -32970,8 +33507,90 @@ export const CATALOGUE = [
 							],
 							"type": "object"
 						},
+						"measured": {
+							"additionalProperties": false,
+							"properties": {
+								"ingredients": {
+									"items": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"type": "array"
+								},
+								"scaled_to": {
+									"additionalProperties": false,
+									"properties": {
+										"amount": {
+											"type": "string"
+										},
+										"noun": {
+											"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
+											"type": "string"
+										}
+									},
+									"required": [
+										"amount",
+										"noun"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								}
+							},
+							"required": [
+								"ingredients",
+								"scaled_to"
+							],
+							"type": "object"
+						},
 						"promotion_declined": {
 							"type": "boolean"
+						},
+						"readings": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"lineage_id": {
+										"description": "The Recipe this line names, which makes the Ingredient a Component. It may name a Lineage this instance does not hold — deleted, never received, or held by nobody here — and the line still reads correctly, because the written line was always the truth.",
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"target": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"unit": {
+										"type": [
+											"string",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"amount",
+									"unit",
+									"target",
+									"lineage_id"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"type": "array"
 						},
 						"version_id": {
 							"type": "string"
@@ -32981,7 +33600,9 @@ export const CATALOGUE = [
 						"version_id",
 						"content",
 						"against",
-						"promotion_declined"
+						"promotion_declined",
+						"readings",
+						"measured"
 					],
 					"type": [
 						"object",
@@ -33484,8 +34105,90 @@ export const CATALOGUE = [
 							],
 							"type": "object"
 						},
+						"measured": {
+							"additionalProperties": false,
+							"properties": {
+								"ingredients": {
+									"items": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"type": "array"
+								},
+								"scaled_to": {
+									"additionalProperties": false,
+									"properties": {
+										"amount": {
+											"type": "string"
+										},
+										"noun": {
+											"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
+											"type": "string"
+										}
+									},
+									"required": [
+										"amount",
+										"noun"
+									],
+									"type": [
+										"object",
+										"null"
+									]
+								}
+							},
+							"required": [
+								"ingredients",
+								"scaled_to"
+							],
+							"type": "object"
+						},
 						"promotion_declined": {
 							"type": "boolean"
+						},
+						"readings": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"amount": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"lineage_id": {
+										"description": "The Recipe this line names, which makes the Ingredient a Component. It may name a Lineage this instance does not hold — deleted, never received, or held by nobody here — and the line still reads correctly, because the written line was always the truth.",
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"target": {
+										"type": [
+											"string",
+											"null"
+										]
+									},
+									"unit": {
+										"type": [
+											"string",
+											"null"
+										]
+									}
+								},
+								"required": [
+									"amount",
+									"unit",
+									"target",
+									"lineage_id"
+								],
+								"type": [
+									"object",
+									"null"
+								]
+							},
+							"type": "array"
 						},
 						"version_id": {
 							"type": "string"
@@ -33495,7 +34198,9 @@ export const CATALOGUE = [
 						"version_id",
 						"content",
 						"against",
-						"promotion_declined"
+						"promotion_declined",
+						"readings",
+						"measured"
 					],
 					"type": [
 						"object",
@@ -34093,8 +34798,90 @@ export const CATALOGUE = [
 									],
 									"type": "object"
 								},
+								"measured": {
+									"additionalProperties": false,
+									"properties": {
+										"ingredients": {
+											"items": {
+												"type": [
+													"string",
+													"null"
+												]
+											},
+											"type": "array"
+										},
+										"scaled_to": {
+											"additionalProperties": false,
+											"properties": {
+												"amount": {
+													"type": "string"
+												},
+												"noun": {
+													"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
+													"type": "string"
+												}
+											},
+											"required": [
+												"amount",
+												"noun"
+											],
+											"type": [
+												"object",
+												"null"
+											]
+										}
+									},
+									"required": [
+										"ingredients",
+										"scaled_to"
+									],
+									"type": "object"
+								},
 								"promotion_declined": {
 									"type": "boolean"
+								},
+								"readings": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"amount": {
+												"type": [
+													"string",
+													"null"
+												]
+											},
+											"lineage_id": {
+												"description": "The Recipe this line names, which makes the Ingredient a Component. It may name a Lineage this instance does not hold — deleted, never received, or held by nobody here — and the line still reads correctly, because the written line was always the truth.",
+												"type": [
+													"string",
+													"null"
+												]
+											},
+											"target": {
+												"type": [
+													"string",
+													"null"
+												]
+											},
+											"unit": {
+												"type": [
+													"string",
+													"null"
+												]
+											}
+										},
+										"required": [
+											"amount",
+											"unit",
+											"target",
+											"lineage_id"
+										],
+										"type": [
+											"object",
+											"null"
+										]
+									},
+									"type": "array"
 								},
 								"version_id": {
 									"type": "string"
@@ -34104,7 +34891,9 @@ export const CATALOGUE = [
 								"version_id",
 								"content",
 								"against",
-								"promotion_declined"
+								"promotion_declined",
+								"readings",
+								"measured"
 							],
 							"type": [
 								"object",
@@ -34609,8 +35398,90 @@ export const CATALOGUE = [
 										],
 										"type": "object"
 									},
+									"measured": {
+										"additionalProperties": false,
+										"properties": {
+											"ingredients": {
+												"items": {
+													"type": [
+														"string",
+														"null"
+													]
+												},
+												"type": "array"
+											},
+											"scaled_to": {
+												"additionalProperties": false,
+												"properties": {
+													"amount": {
+														"type": "string"
+													},
+													"noun": {
+														"description": "What the amount counts, as the recipe's own Yield names it. Empty makes the amount a multiplier of the recipe as written.",
+														"type": "string"
+													}
+												},
+												"required": [
+													"amount",
+													"noun"
+												],
+												"type": [
+													"object",
+													"null"
+												]
+											}
+										},
+										"required": [
+											"ingredients",
+											"scaled_to"
+										],
+										"type": "object"
+									},
 									"promotion_declined": {
 										"type": "boolean"
+									},
+									"readings": {
+										"items": {
+											"additionalProperties": false,
+											"properties": {
+												"amount": {
+													"type": [
+														"string",
+														"null"
+													]
+												},
+												"lineage_id": {
+													"description": "The Recipe this line names, which makes the Ingredient a Component. It may name a Lineage this instance does not hold — deleted, never received, or held by nobody here — and the line still reads correctly, because the written line was always the truth.",
+													"type": [
+														"string",
+														"null"
+													]
+												},
+												"target": {
+													"type": [
+														"string",
+														"null"
+													]
+												},
+												"unit": {
+													"type": [
+														"string",
+														"null"
+													]
+												}
+											},
+											"required": [
+												"amount",
+												"unit",
+												"target",
+												"lineage_id"
+											],
+											"type": [
+												"object",
+												"null"
+											]
+										},
+										"type": "array"
 									},
 									"version_id": {
 										"type": "string"
@@ -34620,7 +35491,9 @@ export const CATALOGUE = [
 									"version_id",
 									"content",
 									"against",
-									"promotion_declined"
+									"promotion_declined",
+									"readings",
+									"measured"
 								],
 								"type": [
 									"object",
