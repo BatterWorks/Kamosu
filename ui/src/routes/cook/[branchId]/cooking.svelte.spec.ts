@@ -1039,6 +1039,30 @@ describe('writing down what you actually cooked', () => {
 		expect(screen.getByRole('button', { name: /1 cup panko/i })).toBeInTheDocument();
 	});
 
+	it("puts an added line after the Step's own, and keeps it on the Step after Done", async () => {
+		const kamosu = await cook();
+		await startWriting();
+		await fireEvent.click(await screen.findByRole('button', { name: /add a line/i }));
+		const added = await screen.findByPlaceholderText(/a line you added/i);
+		await fireEvent.input(added, { target: { value: '1 tsp paprika' } });
+		await fireEvent.click(await screen.findByRole('button', { name: /^done$/i }));
+
+		// After the panko, the last line this Step uses, rather than at the foot
+		// of the list: the Core's pairing keeps it there, so it is this Step's
+		// when the cooking is opened again (round 3 of #681's climb).
+		const written = kamosu.calls.find((call) => call.operation === 'set_as_cooked');
+		const cooked = (written?.input as { as_cooked: { ingredients: { text: string }[] } }).as_cooked;
+		expect(cooked.ingredients.map((line) => line.text)).toEqual([
+			'For the cutlets',
+			'2 chicken breasts',
+			'1 cup panko',
+			'1 tsp paprika',
+			'800 ml water',
+			'a pinch of salt',
+		]);
+		expect(await exactly('1 tsp paprika')).toBeInTheDocument();
+	});
+
 	it('inserts a step before this one and leaves the cook standing on it', async () => {
 		const kamosu = await cook();
 		await startWriting();

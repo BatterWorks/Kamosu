@@ -20,7 +20,7 @@
 	recipe's own stays on the recipe page.
 -->
 <script lang="ts">
-	import { stepPieces, type StepConversions } from '#lib/step-conversions.js';
+	import { inPlace, stepPieces, type StepConversions } from '#lib/step-conversions.js';
 
 	interface Props {
 		text: string;
@@ -37,7 +37,7 @@
 </script>
 
 {#each pieces as piece, index (index)}{piece.text}{#if piece.written && lead}<span
-			class="whitespace-nowrap">{piece.measured}</span
+			class="whitespace-nowrap">{inPlace(piece.text, piece.measured ?? '')}</span
 		>{:else if piece.written}<span class="whitespace-nowrap"
 			>{piece.written}&nbsp;<span class={readingClass}>({piece.measured})</span></span
 		>{/if}{/each}

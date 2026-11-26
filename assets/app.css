@@ -2201,6 +2201,10 @@
     --tw-leading: 1.35;
     line-height: 1.35;
   }
+  .leading-\[calc\(24\*var\(--type-unit\)\)\] {
+    --tw-leading: calc(24 * var(--type-unit));
+    line-height: calc(24 * var(--type-unit));
+  }
   .leading-none {
     --tw-leading: 1;
     line-height: 1;
@@ -2593,6 +2597,10 @@
     .wide\:text-panel-figure {
       font-size: var(--text-panel-figure);
     }
+    .wide\:leading-\[1\.4\] {
+      --tw-leading: 1.4;
+      line-height: 1.4;
+    }
     .wide\:leading-figure-far {
       --tw-leading: var(--leading-figure-far);
       line-height: var(--leading-figure-far);
@@ -2753,9 +2761,13 @@
       content: var(--tw-content);
       inset-inline: var(--spacing-0);
     }
-    .sideways\:\[\&\>button\]\:after\:inset-y-\[-4px\] > button::after {
+    .sideways\:\[\&\>button\]\:after\:top-0 > button::after {
       content: var(--tw-content);
-      inset-block: -4px;
+      top: var(--spacing-0);
+    }
+    .sideways\:\[\&\>button\]\:after\:bottom-\[-8px\] > button::after {
+      content: var(--tw-content);
+      bottom: -8px;
     }
     .sideways\:\[\&\>button\]\:after\:content-\[\'\'\] > button::after {
       --tw-content: '';

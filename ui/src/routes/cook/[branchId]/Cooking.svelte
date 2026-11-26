@@ -678,6 +678,30 @@
 	 * that went in. A line they dropped stays on screen, struck: it was in front
 	 * of them a moment ago and vanishing furniture is how a screen loses a cook.
 	 */
+	/** Where the lines the cook wrote straight after the line at `at` sit. */
+	function followers(rows: Line[], at: number): number[] {
+		const found = [];
+		for (let next = at + 1; next < rows.length; next++) {
+			if (rows[next].from !== null || rows[next].kind !== 'ingredient') break;
+			found.push(next);
+		}
+		return found;
+	}
+
+	/**
+	 * The lines the cook wrote that stand under a line some Step uses, and so
+	 * are drawn on that Step and not offered again on every other one.
+	 */
+	const onAStep = $derived.by(() => {
+		const rows = asCooked?.ingredients ?? [];
+		const used = new Set((version?.cooking.steps ?? []).flatMap((step) => step?.uses ?? []));
+		return new Set(
+			rows.flatMap((row, at) =>
+				row.from !== null && used.has(row.from) ? followers(rows, at) : [],
+			),
+		);
+	});
+
 	const amounts = $derived(
 		(outOfText?.uses ?? []).flatMap((from) => {
 			const rows = asCooked?.ingredients ?? [];
@@ -695,30 +719,24 @@
 				/** Whether Kamosu read an amount on the line, so there was one to scale (#680). */
 				hasAmount: Boolean(version?.readings?.[from]?.amount),
 			};
-			if (!row.dropped) return [own];
+			// The lines the cook wrote straight after this one are drawn under it.
 			// A line rewritten past recognition comes back from the Core as this
-			// one dropped and a new one added straight after it (ADR 0019: a
-			// removal and an addition, the old struck beside the new). The new
-			// one is drawn here, under the struck one, rather than nowhere: the
-			// sherry a cook wrote over the Shaoxing wine was gone from the Step
-			// once the screen was opened again (round 2 of #681's climb). Only
-			// what the Core put straight after a dropped line: a line added at
-			// the foot of the list belongs to no Step.
-			const after = [];
-			for (let next = at + 1; next < rows.length; next++) {
-				const added = rows[next];
-				if (added.from !== null || added.kind !== 'ingredient') break;
-				if (added.text.trim() === '' && !writing) continue;
-				after.push({
+			// one dropped and a new one added after it (ADR 0019: a removal and
+			// an addition, the old struck beside the new), and Add a line puts
+			// its line after the Step's last one, so the Core's own order keeps
+			// each on its Step. Both were gone from the Step once the cooking was
+			// opened again (rounds 2 and 3 of #681's climb).
+			const after = followers(rows, at)
+				.filter((next) => writing || rows[next].text.trim() !== '')
+				.map((next) => ({
 					...own,
 					at: next,
-					row: added,
+					row: rows[next],
 					written: null,
 					changed: true,
 					beneath: null,
 					hasAmount: false,
-				});
-			}
+				}));
 			return [own, ...after];
 		}),
 	);
@@ -759,9 +777,16 @@
 	 * opened first (round 1 of #681's climb: a grader found Add a line only after
 	 * opening The other ingredients and scrolling past twelve rows).
 	 */
-	const addedLines = $derived(otherLines.filter((line) => line.row.from === null));
-	/** The recipe's own lines this Step does not use, behind The other ingredients. */
-	const restLines = $derived(otherLines.filter((line) => line.row.from !== null));
+	const addedLines = $derived(
+		otherLines.filter((line) => line.row.from === null && !onAStep.has(line.at)),
+	);
+	/**
+	 * The recipe's own lines this Step does not use, behind The other
+	 * ingredients, and the lines the cook wrote on another Step.
+	 */
+	const restLines = $derived(
+		otherLines.filter((line) => line.row.from !== null || onAStep.has(line.at)),
+	);
 
 	const ticked = $derived(new Set(attempt?.ticked_ingredients ?? []));
 
@@ -773,11 +798,15 @@
 	 * 400px of nothing (round 1 of #681's climb). So the Step is drawn in one
 	 * column first, and goes to two once it is found running past the foot.
 	 * Three lines is the least that two columns can shorten.
+	 *
+	 * In two columns the lines are 24px apart, not the line size's 23.8: rows
+	 * that touch at a fraction of a pixel claimed the same pixel row twice,
+	 * and measured as taps overlapping (round 3 of #681's climb).
 	 */
 	const columns = $derived(crowded && amounts.length >= 3);
 	const figure = $derived(
 		columns
-			? 'text-line sideways:text-panel-figure wide:text-panel-figure wide:leading-figure-far'
+			? 'text-line leading-[calc(24*var(--type-unit))] sideways:text-panel-figure wide:text-panel-figure wide:leading-figure-far'
 			: 'text-panel-figure wide:leading-figure-far',
 	);
 
@@ -878,12 +907,20 @@
 	/** A line the cook added: theirs, from nowhere in the recipe. */
 	async function addLine() {
 		if (!asCooked) return;
-		asCooked.ingredients.push({ kind: 'ingredient', text: '', from: null, dropped: false });
+		// After this Step's last line, so it is this Step's when the cooking is
+		// opened again; at the foot of the list on a Step that uses none.
+		const last = Math.max(-1, ...amounts.map((amount) => amount.at));
+		const at = last >= 0 ? last + 1 : asCooked.ingredients.length;
+		asCooked.ingredients.splice(at, 0, {
+			kind: 'ingredient',
+			text: '',
+			from: null,
+			dropped: false,
+		});
 		unsaved = true;
 		// The new field takes the caret, so the cook types rather than aims again.
 		await settledDom();
-		const added = document.querySelectorAll<HTMLInputElement>('input[data-added-line]');
-		added[added.length - 1]?.focus();
+		document.querySelector<HTMLInputElement>(`input[data-line-at="${at}"]`)?.focus();
 	}
 
 	/**
@@ -1277,8 +1314,19 @@
 					stroke-linecap="round"
 					stroke-linejoin="round"><path d="M15 5l-7 7 7 7" /></svg
 				>
-				<span class="truncate font-display text-line font-semibold">{content.title}</span>
+				<!-- A photo kept is said here for three seconds, in the recipe's name's
+				     place: over nothing the cook reads at that moment, and moving
+				     nothing. Above Back and Next it covered the Step's last lines, and
+				     at the top right the step count (rounds 2 and 3 of #681's climb). -->
+				{#if photoKept}
+					<span class="truncate font-display text-line font-semibold" aria-hidden="true">
+						✓ {m.cook_photo_kept()}
+					</span>
+				{:else}
+					<span class="truncate font-display text-line font-semibold">{content.title}</span>
+				{/if}
 			</a>
+			<p class="sr-only" role="status">{photoKept ? m.cook_photo_kept() : ''}</p>
 			<!--
 				KAMOSU WENT WRONG, in two words (#119, option B, chosen 23
 				September 2026). Everywhere else #98's card says it at the top of the
@@ -1725,8 +1773,10 @@
 										{#each amounts as amount (amount.at)}
 											<li class="flex items-center gap-2">
 												<input
+													data-line-at={amount.at}
 													value={amount.row.text}
 													disabled={amount.row.dropped}
+													placeholder={amount.row.from === null ? m.cook_added_line() : undefined}
 													oninput={(event) =>
 														write('ingredients', amount.at, event.currentTarget.value)}
 													class="min-h-12 min-w-0 flex-1 rounded-sm border border-cook-accent bg-transparent px-2 py-1 font-display text-panel-figure font-semibold text-cook-ink disabled:line-through disabled:opacity-45"
@@ -1770,7 +1820,7 @@
 										{#each addedLines as line (line.at)}
 											<li class="flex items-center gap-2">
 												<input
-													data-added-line
+													data-line-at={line.at}
 													value={line.row.text}
 													disabled={line.row.dropped}
 													placeholder={m.cook_added_line()}
@@ -1956,7 +2006,8 @@
 																     measure by: at the ingredient line's size, where 15px
 																     muted was the hardest thing on the screen to read
 																     (round 2 of #681's climb). -->
-																<span class="block text-line text-cook-soft wide:text-step-reading"
+																<span
+																	class="block text-line leading-[calc(24*var(--type-unit))] text-cook-soft wide:text-step-reading wide:leading-[1.4]"
 																	>{amount.beneath}</span
 																>
 															{/if}
@@ -2132,9 +2183,10 @@
 			step goes to it, so Back is never greyed out on a step.
 
 			A PHONE ON ITS SIDE draws them 40 tall, since it is 390 tall in all,
-			and since round 2 of #681's climb they take a tap 4px past each edge,
+			and since round 2 of #681's climb they take a tap 8px past their foot,
 			48 in all, as a quiet button does: drawn smaller than 48, never tapped
-			smaller (ADR 0044).
+			smaller (ADR 0044). Below, into the screen's own margin: above, they
+			reached into the last amount's tap.
 		-->
 		{#if moveFailed && !asking}
 			<p class="shrink-0 pt-2 text-step-reading text-cook-ink" role="alert">
@@ -2142,19 +2194,8 @@
 			</p>
 		{/if}
 		<div
-			class="relative flex shrink-0 gap-3 pt-3 wide:gap-4 wide:pt-6 wide:pb-3 sideways:pt-2 sideways:[&>button]:relative sideways:[&>button]:min-h-[40px] sideways:[&>button]:after:absolute sideways:[&>button]:after:inset-x-0 sideways:[&>button]:after:inset-y-[-4px] sideways:[&>button]:after:content-['']"
+			class="relative flex shrink-0 gap-3 pt-3 wide:gap-4 wide:pt-6 wide:pb-3 sideways:pt-2 sideways:[&>button]:relative sideways:[&>button]:min-h-[40px] sideways:[&>button]:after:absolute sideways:[&>button]:after:inset-x-0 sideways:[&>button]:after:top-0 sideways:[&>button]:after:bottom-[-8px] sideways:[&>button]:after:content-['']"
 		>
-			<!-- A photo kept, said for three seconds just above Back and Next, over
-			     nothing the cook reads at that moment: at the top it covered the
-			     step count (round 2 of #681's climb). -->
-			{#if photoKept}
-				<p
-					role="status"
-					class="pointer-events-none absolute right-0 bottom-full z-10 mb-2 rounded-sm border border-cook-line bg-cook-panel px-3 py-2 text-step-reading text-cook-ink"
-				>
-					{m.cook_photo_kept()}
-				</p>
-			{/if}
 			{#if asking}
 				<button
 					type="button"

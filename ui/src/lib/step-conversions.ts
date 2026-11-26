@@ -41,3 +41,21 @@ export function stepPieces(text: string, conversions: StepConversions): StepPiec
 	pieces.push({ text: text.slice(from), written: null, measured: null });
 	return pieces;
 }
+
+/**
+ * Tonight's figure for a scaled Step, to stand in the written one's place
+ * (#681), without saying its first word twice: "each weighing about 280g"
+ * at twice the recipe is "each weighing about 10 oz", where the figure the
+ * Core wrote, "about 10 oz", came after the Step's own "about" (round 3 of
+ * #681's climb). Whatever the Language: the word is the one the figure
+ * starts with, found at the end of the words before it.
+ */
+export function inPlace(before: string, measured: string): string {
+	const first = measured.split(/\s+/, 1)[0] ?? '';
+	const words = before.trimEnd().split(/\s+/);
+	const last = words[words.length - 1] ?? '';
+	if (first === '' || first === measured) return measured;
+	return last.toLocaleLowerCase() === first.toLocaleLowerCase()
+		? measured.slice(first.length).trimStart()
+		: measured;
+}
