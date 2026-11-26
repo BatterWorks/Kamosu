@@ -99,6 +99,8 @@ cuts_and_parts = [
 made_from = [
     "poudre", "extrait", "zeste", "jus", "fond", "farine", "huile", "beurre",
     "lait", "crème", "sirop", "vinaigre", "concentré", "confiture", "eau",
+    # *500 g de mélange carottes et oignons* n'est pas les oignons (#704).
+    "mélange",
 ]
 made_here = [
     "mélange", "marinade", "vinaigrette", "glaçage", "garniture", "farce",
@@ -166,6 +168,15 @@ step_when = [
 step_stocks = [
     "bouillon", "fond",
 ]
+step_kinds = [
+    "rouge", "rouges", "blanc", "blanche", "blancs", "blanches", "noir",
+    "noire", "noirs", "noires", "vert", "verte", "verts", "vertes", "doux",
+    "douce", "sec", "seche", "fume", "fumee", "sale", "salee", "clair",
+    "claire", "fonce", "foncee",
+]
+step_left_in_the_pan = [
+    "graisse", "gras",
+]
 step_of = [
     "de", "d", "du", "des",
 ]
@@ -191,6 +202,20 @@ step_except = [
 # Not *plus*, which says as often *no longer* or *later* (*plus tard*).
 step_more = [
     "davantage",
+]
+step_cooks = [
+    "cuire", "cuisez", "revenir", "rissoler", "rissolez", "dorer", "dorez",
+    "rotir", "rotissez", "frire", "mijoter", "mijotez", "bouillir", "saisir",
+    "saisissez", "griller", "grillez", "braiser", "braisez", "pocher",
+    "pochez", "blanchir", "blanchissez", "poeler", "poelez", "colorer",
+    "colorez",
+]
+step_back = [
+    "remettez", "remettre", "remets", "remettant",
+]
+step_portions = [
+    "reste", "restant", "restante", "restants", "restantes", "moitie", "autre",
+    "partie", "peu", "pincee", "filet", "poignee", "quelques",
 ]
 step_each = [
     "chacun", "chacune", "chacuns", "chacunes",
@@ -311,4 +336,18 @@ minute = [
 ]
 hour = [
     "heure", "heures", "h",
+]
+
+# --- What a Step calls a food by that its name never holds, and the names it stands for ---
+
+[step_other_names]
+# *Coupez la viande* is the beef, though no stock cube of beef is (#704).
+"viande" = [
+    "bœuf", "porc", "agneau", "veau", "mouton", "chevreuil", "lapin", "poulet",
+    "canard", "dinde", "paleron", "jarret", "queue de bœuf",
+]
+"herbes" = [
+    "sauge", "thym", "romarin", "persil", "basilic", "origan", "marjolaine",
+    "estragon", "aneth", "ciboulette", "menthe", "cerfeuil",
+    "laurier", "sarriette",
 ]

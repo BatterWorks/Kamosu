@@ -91,7 +91,7 @@
         {"oven": null, "text": "Doe de boerenkool en aardappels in een pan en voeg water toe totdat alles goed onderstaat.", "timer_seconds": null, "uses": [0, 1]},
         {"oven": null, "text": "Breng het geheel aan de kook en kook de aardappels en boerenkool ongeveer 20 minuten totdat de aardappels gaar zijn.", "timer_seconds": 1200, "uses": [0, 1]},
         {"oven": null, "text": "Bereid de rookworst volgens de verpakking.", "timer_seconds": null, "uses": [2]},
-        {"oven": null, "text": "Zelf kook ik de rookworst mee in de pan met de aardappels en boerenkool.", "timer_seconds": null, "uses": [0, 1, 2]},
+        {"oven": null, "text": "Zelf kook ik de rookworst mee in de pan met de aardappels en boerenkool.", "timer_seconds": null, "uses": [0, 2]},
         {"oven": null, "text": "Na ongeveer 20 minuten zijn de aardappels gaar, en giet je het geheel af.", "timer_seconds": 1200, "uses": [1]}
       ]
     },
@@ -281,11 +281,11 @@
       ],
       "steps": [
         {"oven": null, "text": "Bak het vetspek uit.", "timer_seconds": null, "uses": [3]},
-        {"oven": null, "text": "Snijd het vetspek in kleine blokjes en bak deze op laag tot middellaag vuur rustig uit.", "timer_seconds": null, "uses": [3]},
+        {"oven": null, "text": "Snijd het vetspek in kleine blokjes en bak deze op laag tot middellaag vuur rustig uit.", "timer_seconds": null, "uses": []},
         {"oven": null, "text": "Schep de uitgebakken spekjes uit de pan en bewaar het spekvet.", "timer_seconds": null, "uses": [2]},
         {"oven": null, "text": "Kook de aardappels en boerenkool.", "timer_seconds": null, "uses": [0, 1]},
-        {"oven": null, "text": "Schil de aardappels, snijd ze in gelijke stukken en doe ze in een ruime pan met water en een beetje zout.", "timer_seconds": null, "uses": [0, 9]},
-        {"oven": null, "text": "Leg de boerenkool erop en kook alles in ongeveer 20 tot 25 minuten gaar.", "timer_seconds": 1200, "uses": [1]}
+        {"oven": null, "text": "Schil de aardappels, snijd ze in gelijke stukken en doe ze in een ruime pan met water en een beetje zout.", "timer_seconds": null, "uses": [9]},
+        {"oven": null, "text": "Leg de boerenkool erop en kook alles in ongeveer 20 tot 25 minuten gaar.", "timer_seconds": 1200, "uses": []}
       ]
     },
     {
@@ -426,7 +426,7 @@
         {"oven": null, "text": "Breng de aardappelen aan de kook en kook in 20 min.", "timer_seconds": 1200, "uses": [0]},
         {"oven": null, "text": "Kook de witlof in 5 min.", "timer_seconds": 300, "uses": [2]},
         {"oven": "about 350 °F", "text": "Verwarm de oven voor op 180°C.", "timer_seconds": null, "uses": []},
-        {"oven": null, "text": "Verdeel de geraspte kaas over de witlof en bak het geheel 20 min.", "timer_seconds": 1200, "uses": [2, 6]}
+        {"oven": null, "text": "Verdeel de geraspte kaas over de witlof en bak het geheel 20 min.", "timer_seconds": 1200, "uses": [6]}
       ]
     },
     {
@@ -453,7 +453,7 @@
       ],
       "steps": [
         {"oven": null, "text": "Kook de rijst in ruim water gaar volgens de instructies op het pak.", "timer_seconds": null, "uses": [0]},
-        {"oven": null, "text": "Giet de rijst af en laat de rijst helemaal koud worden, dan bakt hij het lekkerste op.", "timer_seconds": null, "uses": [0]},
+        {"oven": null, "text": "Giet de rijst af en laat de rijst helemaal koud worden, dan bakt hij het lekkerste op.", "timer_seconds": null, "uses": []},
         {"oven": null, "text": "Dus: liefst maak je de dag te voren een extra grote portie rijst en laat je het een nacht in de ijskast staan.", "timer_seconds": null, "uses": [0]},
         {"oven": null, "text": "Hak de ui, teentjes knoflook, winterpeen en witte kool fijn.", "timer_seconds": null, "uses": [1, 2, 4, 5]},
         {"oven": null, "text": "Verwijder – als je niet van pittig houdt – de pitjes uit de Spaanse peper en hak de peper ook fijn.", "timer_seconds": null, "uses": [7]},
@@ -776,7 +776,7 @@
       "steps": [
         {"oven": "about 400 °F", "text": "Verwarm de oven voor op 200 graden boven- en onderwarmte.", "timer_seconds": null, "uses": []},
         {"oven": null, "text": "Schil de aardappels, snijd ze in kleine blokjes en kook ze gaar in ruim water en een snuf zout.", "timer_seconds": null, "uses": [0]},
-        {"oven": null, "text": "Als de aardappels bijna klaar zijn zet je nog een pannetje met ruim water op het vuur en breng je dit aan de kook.", "timer_seconds": null, "uses": [0]},
+        {"oven": null, "text": "Als de aardappels bijna klaar zijn zet je nog een pannetje met ruim water op het vuur en breng je dit aan de kook.", "timer_seconds": null, "uses": []},
         {"oven": null, "text": "Verwijder het kontje van de witlof, snijd door de midden en verwijder de bittere, harde kern.", "timer_seconds": null, "uses": [3]},
         {"oven": null, "text": "Dek de ovenschaal af met aluminiumfolie en zet deze 20 minuten in de oven.", "timer_seconds": 1200, "uses": []},
         {"oven": null, "text": "Haal de laatste 5 minuten het aluminiumfolie van de ovenschaal zodat de kaas nog even kan gratineren.", "timer_seconds": 300, "uses": [1]}
@@ -954,11 +954,11 @@
       ],
       "steps": [
         {"oven": null, "text": "Kook de rijst volgens de aanwijzing op de verpakking gaar in een pan met water met een bouillonblokje.", "timer_seconds": null, "uses": [0, 16]},
-        {"oven": null, "text": "Doe dit het liefst al ruim van tevoren, zodat de rijst goed kan drogen.", "timer_seconds": null, "uses": [0]},
+        {"oven": null, "text": "Doe dit het liefst al ruim van tevoren, zodat de rijst goed kan drogen.", "timer_seconds": null, "uses": []},
         {"oven": null, "text": "Schil en snipper de ui.", "timer_seconds": null, "uses": [1]},
         {"oven": null, "text": "Snij de prei in fijne ringen en was deze even in een vergiet.", "timer_seconds": null, "uses": [3]},
         {"oven": null, "text": "Schrap de wortel en snij hier fijne reepjes van.", "timer_seconds": null, "uses": [4]},
-        {"oven": null, "text": "Bak de rijst zo'n 5 minuten mee tot deze goed warm is.", "timer_seconds": 300, "uses": [0]}
+        {"oven": null, "text": "Bak de rijst zo'n 5 minuten mee tot deze goed warm is.", "timer_seconds": 300, "uses": []}
       ]
     },
     {
