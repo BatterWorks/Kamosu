@@ -45,6 +45,93 @@ fn without_plural(word: &str) -> String {
     word.to_string()
 }
 
+/// **A Dutch plural noun as its singular**, for showing (#705): *taarten*,
+/// *taart*; *stukken*, *stuk*; *schalen*, *schaal*; *rozen*, *roos*;
+/// *porties*, *portie*; *pizza's*, *pizza*. An open syllable before `-en`
+/// takes its long vowel back, which is wrong for the few that are short,
+/// *glazen*, and those are in the word file's `irregular` list, as are the
+/// plurals no rule reaches, *broden*. A word with no plural ending is left
+/// as it is.
+pub fn singular(lists: &Words, word: &str) -> String {
+    let lower = word.to_lowercase();
+    if let Some(one) = lists.irregular.get(&lower) {
+        return one.clone();
+    }
+    for apostrophe in ["'s", "\u{2019}s"] {
+        if let Some(stem) = word.strip_suffix(apostrophe) {
+            return stem.to_string();
+        }
+    }
+    let mut characters: Vec<char> = without_plural(word).chars().collect();
+    let n = characters.len();
+    if !lower.ends_with("en") || n == lower.chars().count() || n < 2 {
+        return characters.into_iter().collect();
+    }
+    let (last, before) = (characters[n - 1], characters[n - 2]);
+    if last == before && !is_vowel(last) {
+        // *Stukken* undoubles the letter its plural doubled.
+        characters.pop();
+    } else if !is_vowel(last) && "aeou".contains(before) && (n < 3 || !is_vowel(characters[n - 3]))
+    {
+        // *Schalen*: an open syllable's vowel is long, so the word doubles
+        // it, and `z` and `v` end it as `s` and `f`.
+        characters.insert(n - 1, before);
+        match characters.last_mut() {
+            Some(end @ 'z') => *end = 's',
+            Some(end @ 'v') => *end = 'f',
+            _ => {}
+        }
+    }
+    characters.into_iter().collect()
+}
+
+/// **A Dutch singular noun as its plural**, for showing (#705): *taart*,
+/// *taarten*; *stuk*, *stukken*; *schaal*, *schalen*; *roos*, *rozen*;
+/// *portie*, *porties*; *pizza*, *pizza's*. The plurals no rule reaches are
+/// the word file's `irregular` list.
+pub fn plural(lists: &Words, word: &str) -> String {
+    let lower = word.to_lowercase();
+    if let Some((many, _)) = lists.irregular.iter().find(|(_, one)| **one == lower) {
+        return many.clone();
+    }
+    let characters: Vec<char> = lower.chars().collect();
+    let n = characters.len();
+    let Some(&last) = characters.last() else {
+        return word.to_string();
+    };
+    let unstressed = ["el", "em", "en", "er", "je"]
+        .iter()
+        .any(|end| lower.ends_with(end));
+    if last == 'e' || unstressed {
+        return format!("{word}s");
+    }
+    if is_vowel(last) {
+        return format!("{word}'s");
+    }
+    // A long vowel before the last letter is written single once the
+    // syllable is open, and `s` and `f` voice: *schalen*, *rozen*.
+    if n >= 4
+        && !is_vowel(last)
+        && characters[n - 2] == characters[n - 3]
+        && "aeou".contains(characters[n - 2])
+        && !is_vowel(characters[n - 4])
+    {
+        let stem: String = characters[..n - 2].iter().collect();
+        let end = match last {
+            's' => 'z',
+            'f' => 'v',
+            other => other,
+        };
+        return format!("{stem}{end}en");
+    }
+    // A short vowel between two consonants doubles the last one: *stukken*.
+    let short = n >= 3 && is_vowel(characters[n - 2]) && !is_vowel(characters[n - 3]);
+    if short {
+        return format!("{word}{last}en");
+    }
+    format!("{word}en")
+}
+
 /// The word with its small ending off, or nothing where it has none.
 fn without_diminutive(word: &str) -> Option<String> {
     let word = word.strip_suffix('s').unwrap_or(word);

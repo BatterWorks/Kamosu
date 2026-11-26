@@ -797,7 +797,9 @@
 	const howMuch = $derived(
 		wanted && isMultiplier(wanted)
 			? (wholeRecipe(parseAmount(wanted.amount)) ?? `×${wanted.amount}`)
-			: (said(wanted) ?? said(written) ?? m.how_much_as_written()),
+			: (said(wanted, version?.yield_nouns) ??
+					said(written, version?.yield_nouns) ??
+					m.how_much_as_written()),
 	);
 
 	/**
@@ -1137,7 +1139,13 @@
 				so there is no button in here to confuse with it.
 			-->
 			<div class="flex min-h-0 flex-1 flex-col justify-center overflow-y-auto pt-3">
-				<HowMuch {written} {wanted} room="cook" onchoose={(chosen) => void choose(chosen)} />
+				<HowMuch
+					{written}
+					{wanted}
+					nouns={version?.yield_nouns}
+					room="cook"
+					onchoose={(chosen) => void choose(chosen)}
+				/>
 				{#if counts(written)}
 					<p class="max-w-[480px] pt-3 text-step-reading text-cook-soft">
 						{m.how_much_amounts_follow()}

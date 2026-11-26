@@ -60,6 +60,7 @@ export function recipeAnswer(
 				created_at: '2026-08-01T09:00:00Z',
 				translates_version_id: null,
 				scaled_to: null,
+				yield_nouns: null,
 				language: 'en',
 				components: [],
 				content: {

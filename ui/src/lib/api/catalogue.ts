@@ -1562,6 +1562,10 @@ export type CreateRecipeOutput = {
 		sequence: number;
 		translates_version_id: string | null;
 		version_id: string;
+		yield_nouns: {
+			many: string;
+			one: string;
+		} | null;
 	}[];
 	writes: boolean;
 };
@@ -1851,6 +1855,10 @@ export type StartVariationOutput = {
 		sequence: number;
 		translates_version_id: string | null;
 		version_id: string;
+		yield_nouns: {
+			many: string;
+			one: string;
+		} | null;
 	}[];
 	writes: boolean;
 };
@@ -2049,6 +2057,10 @@ export type KeepVersionAsCopyOutput = {
 		sequence: number;
 		translates_version_id: string | null;
 		version_id: string;
+		yield_nouns: {
+			many: string;
+			one: string;
+		} | null;
 	}[];
 	writes: boolean;
 };
@@ -2338,6 +2350,10 @@ export type StartTranslationOutput = {
 		sequence: number;
 		translates_version_id: string | null;
 		version_id: string;
+		yield_nouns: {
+			many: string;
+			one: string;
+		} | null;
 	}[];
 	writes: boolean;
 };
@@ -3228,6 +3244,10 @@ export type GetRecipeOutput = {
 		sequence: number;
 		translates_version_id: string | null;
 		version_id: string;
+		yield_nouns: {
+			many: string;
+			one: string;
+		} | null;
 	}[];
 	writes: boolean;
 };
@@ -14453,6 +14473,25 @@ export const CATALOGUE = [
 							},
 							"version_id": {
 								"type": "string"
+							},
+							"yield_nouns": {
+								"additionalProperties": false,
+								"properties": {
+									"many": {
+										"type": "string"
+									},
+									"one": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"one",
+									"many"
+								],
+								"type": [
+									"object",
+									"null"
+								]
 							}
 						},
 						"required": [
@@ -14470,7 +14509,8 @@ export const CATALOGUE = [
 							"components",
 							"translates_version_id",
 							"language",
-							"scaled_to"
+							"scaled_to",
+							"yield_nouns"
 						],
 						"type": "object"
 					},
@@ -16046,6 +16086,25 @@ export const CATALOGUE = [
 							},
 							"version_id": {
 								"type": "string"
+							},
+							"yield_nouns": {
+								"additionalProperties": false,
+								"properties": {
+									"many": {
+										"type": "string"
+									},
+									"one": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"one",
+									"many"
+								],
+								"type": [
+									"object",
+									"null"
+								]
 							}
 						},
 						"required": [
@@ -16063,7 +16122,8 @@ export const CATALOGUE = [
 							"components",
 							"translates_version_id",
 							"language",
-							"scaled_to"
+							"scaled_to",
+							"yield_nouns"
 						],
 						"type": "object"
 					},
@@ -17164,6 +17224,25 @@ export const CATALOGUE = [
 							},
 							"version_id": {
 								"type": "string"
+							},
+							"yield_nouns": {
+								"additionalProperties": false,
+								"properties": {
+									"many": {
+										"type": "string"
+									},
+									"one": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"one",
+									"many"
+								],
+								"type": [
+									"object",
+									"null"
+								]
 							}
 						},
 						"required": [
@@ -17181,7 +17260,8 @@ export const CATALOGUE = [
 							"components",
 							"translates_version_id",
 							"language",
-							"scaled_to"
+							"scaled_to",
+							"yield_nouns"
 						],
 						"type": "object"
 					},
@@ -18701,6 +18781,25 @@ export const CATALOGUE = [
 							},
 							"version_id": {
 								"type": "string"
+							},
+							"yield_nouns": {
+								"additionalProperties": false,
+								"properties": {
+									"many": {
+										"type": "string"
+									},
+									"one": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"one",
+									"many"
+								],
+								"type": [
+									"object",
+									"null"
+								]
 							}
 						},
 						"required": [
@@ -18718,7 +18817,8 @@ export const CATALOGUE = [
 							"components",
 							"translates_version_id",
 							"language",
-							"scaled_to"
+							"scaled_to",
+							"yield_nouns"
 						],
 						"type": "object"
 					},
@@ -23266,6 +23366,25 @@ export const CATALOGUE = [
 							},
 							"version_id": {
 								"type": "string"
+							},
+							"yield_nouns": {
+								"additionalProperties": false,
+								"properties": {
+									"many": {
+										"type": "string"
+									},
+									"one": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"one",
+									"many"
+								],
+								"type": [
+									"object",
+									"null"
+								]
 							}
 						},
 						"required": [
@@ -23283,7 +23402,8 @@ export const CATALOGUE = [
 							"components",
 							"translates_version_id",
 							"language",
-							"scaled_to"
+							"scaled_to",
+							"yield_nouns"
 						],
 						"type": "object"
 					},

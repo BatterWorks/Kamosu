@@ -127,6 +127,7 @@ const version = (id: string): GetRecipeOutput['versions'][number] => ({
 	sequence: 1,
 	version_id: id,
 	scaled_to: null,
+	yield_nouns: null,
 	parent_version_id: null,
 	hand_id: 'h_1',
 	name: null,

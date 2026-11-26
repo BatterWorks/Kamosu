@@ -282,9 +282,13 @@ tablespoon = [
 ]
 cup = ["kopje", "kopjes"]
 
-# --- The plurals no rule of `src/dutch.rs` reaches ---
+# --- The plurals no rule of `src/dutch.rs` reaches, for matching a food and wording a Yield (#705) ---
 
 [irregular]
+"personen" = "persoon"
+"glazen" = "glas"
+"muffins" = "muffin"
+"broden" = "brood"
 "champignons" = "champignon"
 "stuks" = "stuk"
 "cashews" = "cashew"

@@ -717,7 +717,8 @@ word_lists! {
 
     /// The plurals no rule reaches, folded, each with its singular: Dutch
     /// *eieren*, *ei*, read by [`crate::dutch`], and English *leaves*, *leaf*,
-    /// read where a scaled line counts anew (#680).
+    /// read where a scaled line counts anew (#680). Both also word a Yield's
+    /// noun for one and for many, `units::yield_nouns` (#705).
     irregular: HashMap<String, String>,
 
     /// Each Unit of the closed set's spellings, by the Unit's id. Written the

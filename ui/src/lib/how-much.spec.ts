@@ -4,7 +4,16 @@
  * Core's, and nothing here could produce one.
  */
 import { describe, expect, it } from 'vitest';
-import { caughtUp, choices, fromSearch, said, stepped, timesOf, toSearch } from './how-much';
+import {
+	caughtUp,
+	choices,
+	fromSearch,
+	nounFor,
+	said,
+	stepped,
+	timesOf,
+	toSearch,
+} from './how-much';
 
 const twelve = { amount: '12', noun: 'servings' };
 
@@ -59,6 +68,17 @@ describe('how much', () => {
 		expect(caughtUp(null, eight, four)).toBe(false);
 		// A choice the Core would not scale by comes back as written, and is level.
 		expect(caughtUp(null, { amount: '2', noun: 'loaves' }, four)).toBe(true);
+	});
+
+	it('words the noun for its count with the nouns the Core gives (#705)', () => {
+		const four = { amount: '4', noun: 'servings' };
+		const nouns = { one: 'serving', many: 'servings' };
+		expect(nounFor('1', four, nouns)).toBe('serving');
+		expect(nounFor('2', four, nouns)).toBe('servings');
+		expect(said({ amount: '1', noun: 'servings' }, nouns)).toBe('1 serving');
+		expect(said({ amount: '2', noun: '' }, nouns)).toBe('×2');
+		// With no nouns from the Core the noun is as the recipe wrote it.
+		expect(nounFor('1', four)).toBe('servings');
 	});
 
 	it('carries a choice from the recipe page to the cooking through the address', () => {
