@@ -1699,30 +1699,66 @@ pub(super) fn measured_for_version(
             let amounts = crate::reading::amounts_in_step(text, written_in_language)
                 .into_iter()
                 .filter_map(|amount| {
-                    let cup_weight = amount
+                    let line = amount
                         .food
                         .as_deref()
-                        .and_then(|food| line_named_first(&readings, food))
-                        .and_then(|reading| reading.cup_weight);
+                        .and_then(|food| line_named_first(&readings, food));
+                    let cup_weight = line.and_then(|reading| reading.cup_weight);
                     // Where the Step restates the amount in the reader's own
                     // system, that is the figure they are given (#698).
-                    let (figure, unit) = match &amount.restated {
-                        Some(restated) if restated.is_readers_own(measures) => {
-                            (&restated.amount, &restated.unit)
-                        }
-                        _ => (&amount.amount, &amount.unit),
-                    };
+                    let step_restates = amount
+                        .restated
+                        .as_ref()
+                        .filter(|restated| restated.is_readers_own(measures));
+                    // Where it names the very amount of the line it uses, and
+                    // the line restates that in the reader's own system, the
+                    // line's figure is the one given, so the list and the
+                    // Step agree (#705). As written, a Step restating it
+                    // keeps its own.
+                    let line_restates = line
+                        .filter(|_| !amount.each && (scale != 1.0 || step_restates.is_none()))
+                        .and_then(|reading| {
+                            line_restating(
+                                reading,
+                                &amount,
+                                ingredient_lines,
+                                written_in_language,
+                                measures,
+                            )
+                        });
                     // One piece's share is as much at any Yield (#698).
                     let scale = if amount.each { 1.0 } else { scale };
-                    let measured = units::measured_line_in(
-                        written_in_language,
-                        Some(figure),
-                        Some(unit),
-                        scale,
-                        measures,
-                        language,
-                        cup_weight,
-                    )?;
+                    let measured = match (&line_restates, step_restates) {
+                        // The line's measure is said even where it is already
+                        // the reader's own, since the Step's words do not say it.
+                        (Some(restated), _) => units::measured_said_in(
+                            written_in_language,
+                            &restated.amount,
+                            &restated.unit,
+                            scale,
+                            measures,
+                            language,
+                            cup_weight,
+                        ),
+                        (None, Some(restated)) => units::measured_line_in(
+                            written_in_language,
+                            Some(&restated.amount),
+                            Some(&restated.unit),
+                            scale,
+                            measures,
+                            language,
+                            cup_weight,
+                        ),
+                        (None, None) => units::measured_line_in(
+                            written_in_language,
+                            Some(&amount.amount),
+                            Some(&amount.unit),
+                            scale,
+                            measures,
+                            language,
+                            cup_weight,
+                        ),
+                    }?;
                     Some((amount.start, amount.written(text), measured))
                 });
             let mut conversions: Vec<_> = oven.into_iter().chain(amounts).collect();
@@ -1751,6 +1787,35 @@ pub(super) fn measured_for_version(
     }
 
     Ok(json!({ "ingredients": ingredients, "steps": steps }))
+}
+
+/// **The measure a Step's amount is given from its line** (#705): where the
+/// Step names the very amount of the Ingredient Line it uses, `680g` of the
+/// line `680g (5 3/4c) All-purpose flour`, and the line restates it in the
+/// reader's own system, that restatement. Nothing otherwise.
+fn line_restating(
+    reading: &Measurable,
+    amount: &crate::reading::StepAmount,
+    ingredient_lines: &[Value],
+    written_in_language: &str,
+    measures: units::Measures,
+) -> Option<units::Restated> {
+    let (line_amount, line_unit) = (reading.amount.as_deref()?, reading.unit.as_deref()?);
+    if !units::same_measure(
+        written_in_language,
+        (&amount.amount, &amount.unit),
+        (line_amount, line_unit),
+    ) {
+        return None;
+    }
+    let text = ingredient_lines.get(usize::try_from(reading.line_index).ok()?)?["text"].as_str()?;
+    units::readers_own_in_line(
+        text,
+        &reading.written_in_language,
+        line_amount,
+        line_unit,
+        measures,
+    )
 }
 
 /// The Reading a Step's amount is an amount of: the one named soonest in the

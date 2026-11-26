@@ -45,6 +45,15 @@
 //! line of its own. A Step may also call a food something its name never
 //! holds, *the mince* for *ground pork*, from the word files'
 //! `step_other_names`. Both came from #697.
+//!
+//! A line an earlier Step cooked is the cooked thing from then on, and a
+//! later Step naming it again adds nothing (#704): *the cooked mince*, *put
+//! the meat back*, or *combine the noodles* after *boil noodles*. A Step that
+//! only cut it, *cut the meat*, or took a part of it, *a little salt*, leaves
+//! the line to go in later, and so does a later Step taking a part, *the
+//! green portion of scallions*. Nor does a word beside a part of a name that
+//! says another kind of the food, *a sweet wine* against the line's *red
+//! wine*, find the line.
 
 use std::ops::Range;
 
@@ -65,12 +74,17 @@ fn opens_a_purpose(lists: &Words, word: &str, language: Option<&str>) -> bool {
 /// sets words apart as firmly as one.
 const CLAUSE_ENDS: &[char] = &[',', '.', ';', ':', '!', '?', '(', ')', '\n'];
 
+/// What ends a sentence, which a [`Words::step_back`] word reaches across
+/// commas: *put the meat, speck and onions back*.
+const SENTENCE_ENDS: &[char] = &['.', ';', '!', '?', '\n'];
+
 /// One word of folded text, whether it sits in an *until* or a *when* clause,
-/// and the clause it sits in.
+/// and the clause and sentence it sits in.
 struct Word {
     text: String,
     not_going_in: bool,
     clause: usize,
+    sentence: usize,
 }
 
 /// What sets two foods apart inside one name, as *salt & pepper* and
@@ -133,6 +147,7 @@ fn kept_its_accent(lists: &Words, word: &str) -> bool {
 fn words_of(lists: &Words, text: &str) -> Vec<Word> {
     // Each word, and the clause it sits in.
     let words = split_words(lists, text, CLAUSE_ENDS);
+    let sentences = split_words(lists, text, SENTENCE_ENDS);
 
     let mut marked = Vec::with_capacity(words.len());
     let mut until_in: Option<usize> = None;
@@ -178,6 +193,7 @@ fn words_of(lists: &Words, text: &str) -> Vec<Word> {
             text: text.clone(),
             not_going_in: until_in.is_some(),
             clause: *clause,
+            sentence: sentences[at].1,
         });
     }
     marked
@@ -242,6 +258,10 @@ struct Run {
     /// Whether the run is a name the line's own words never hold, one of
     /// [`Words::step_other_names`] (#697).
     other_name: bool,
+    /// The words of the name the run leaves out that say which kind of the
+    /// food it is, the *red* of *red wine*: a Step naming another kind,
+    /// *a sweet wine*, names another food (#704).
+    kinds_left_out: Vec<String>,
 }
 
 /// The folded words of a name, and where each food in it begins and ends: a
@@ -348,18 +368,24 @@ fn runs_of(lists: &Words, target: &str, language: Option<&str>) -> (Vec<String>,
             let run = &words[from..to];
             let whole = from == 0 && to == n;
             if whole || (main[from..to].contains(&true) && names_the_food(lists, run)) {
-                let mut left_out = words[..from].iter().chain(&words[to..]);
+                let left_out = || words[..from].iter().chain(&words[to..]);
                 runs.push(Run {
                     words: run.to_vec(),
                     whole,
-                    made_from: left_out.any(|word| reading::made_from(lists, word)),
+                    made_from: left_out().any(|word| reading::made_from(lists, word)),
                     other_name: false,
+                    kinds_left_out: left_out()
+                        .filter(|word| lists.step_kinds.has(word))
+                        .cloned()
+                        .collect(),
                 });
             }
         }
     }
     // A name a Step calls the food by, where the line's name holds one of
-    // the names it stands for: *the mince* of *ground pork* (#697).
+    // the names it stands for, a main word of it among them: *the mince* of
+    // *ground pork* (#697), and *the meat* of the beef but not of the beef
+    // stock cubes (#704).
     for (other, stands_for) in &lists.step_other_names {
         let holds = stands_for.iter().any(|name| {
             let name: Vec<String> = split_words(lists, name, &[])
@@ -367,11 +393,12 @@ fn runs_of(lists: &Words, target: &str, language: Option<&str>) -> (Vec<String>,
                 .map(|(word, _)| word)
                 .collect();
             !name.is_empty()
-                && words.windows(name.len()).any(|there| {
-                    there
-                        .iter()
-                        .zip(&name)
-                        .all(|(word, want)| same_word(lists, word, want))
+                && words.windows(name.len()).enumerate().any(|(at, there)| {
+                    main[at..at + name.len()].contains(&true)
+                        && there
+                            .iter()
+                            .zip(&name)
+                            .all(|(word, want)| same_word(lists, word, want))
                 })
         });
         if holds {
@@ -380,6 +407,7 @@ fn runs_of(lists: &Words, target: &str, language: Option<&str>) -> (Vec<String>,
                 whole: false,
                 made_from: false,
                 other_name: true,
+                kinds_left_out: Vec::new(),
             });
         }
     }
@@ -450,7 +478,7 @@ fn names_the_food(lists: &Words, run: &[String]) -> bool {
 }
 
 /// Every place in `step` this line is named, whole or by a part of its name.
-fn mentions_of(lists: &Words, line: &Line, step: &[Word]) -> Vec<Mention> {
+fn mentions_of(lists: &Words, line: &Line, step: &[Word], language: Option<&str>) -> Vec<Mention> {
     let mut found = Vec::new();
     for run in &line.runs {
         // A run of nothing but words an accent sets apart from a joining
@@ -472,7 +500,31 @@ fn mentions_of(lists: &Words, line: &Line, step: &[Word]) -> Vec<Mention> {
                 && there
                     .iter()
                     .all(|word| reading::names_nothing_alone(lists, &word.text));
+            // *A sweet wine* is no red wine: the word beside the run names
+            // another kind of the food than the one the line left out
+            // (#704), before it in English and Dutch and after it in French
+            // and Spanish, *un vin doux*. *The chopped onions* still name the
+            // sliced ones, since a cut is no kind.
+            let another = |beside: Option<&Word>| {
+                beside.is_some_and(|beside| {
+                    beside.clause == there[0].clause
+                        && lists.step_kinds.has(&beside.text)
+                        && !run
+                            .kinds_left_out
+                            .iter()
+                            .any(|kind| same_word(lists, kind, &beside.text))
+                })
+            };
+            let before = || another(start.checked_sub(1).map(|at| &step[at]));
+            let after = || another(step.get(start + run.words.len()));
+            let another_kind = !run.kinds_left_out.is_empty()
+                && match language {
+                    Some("fr" | "es") => after(),
+                    Some("en" | "nl") => before(),
+                    _ => before() || after(),
+                };
             if !names_nothing
+                && !another_kind
                 && there
                     .iter()
                     .zip(&run.words)
@@ -658,7 +710,7 @@ pub fn step_uses(
             .collect(),
     };
 
-    let mut used_before: Vec<usize> = Vec::new();
+    let mut earlier = Earlier::default();
     let mut own_section = None;
     steps
         .iter()
@@ -667,11 +719,20 @@ pub fn step_uses(
                 return None;
             }
             let text = row["text"].as_str()?;
-            let uses = recipe.uses_of(&words_of(lists, text), &used_before, &mut own_section);
-            used_before.extend(&uses);
-            Some(uses)
+            let uses = recipe.uses_of(&words_of(lists, text), &earlier, &mut own_section);
+            earlier.used.extend(&uses.lines);
+            earlier.cooked.extend(&uses.cooked);
+            Some(uses.lines)
         })
         .collect()
+}
+
+/// The lines the Steps before the one being read used, and the ones among
+/// them a Step used up by cooking them ([`StepUses`]).
+#[derive(Default)]
+struct Earlier {
+    used: Vec<usize>,
+    cooked: Vec<usize>,
 }
 
 /// The options a line offering a choice is found by, `ground pork` and
@@ -809,10 +870,14 @@ impl Recipe<'_> {
             |word: &Word| word.clause == clause && reading::made_here(lists, &word.text);
         // A stock is made from what is named beside it, and holds none of
         // the line: *the chicken stock* is no chicken thighs.
-        let a_stock = |word: &Word| word.clause == clause && lists.step_stocks.has(&word.text);
+        // Nor is *the beef fat* any beef (#704).
+        let holds_none_of_it = |word: &Word| {
+            word.clause == clause
+                && (lists.step_stocks.has(&word.text) || lists.step_left_in_the_pan.has(&word.text))
+        };
         let after = || {
             let next = &step[mention.start + mention.len..];
-            next.first().is_some_and(a_stock)
+            next.first().is_some_and(holds_none_of_it)
                 || next
                     .iter()
                     .take(2)
@@ -826,7 +891,7 @@ impl Recipe<'_> {
                 .take(2)
                 .skip_while(|word| lists.step_of.has(&word.text))
                 .take(1)
-                .any(|word| made_here(word) || a_stock(word))
+                .any(|word| made_here(word) || holds_none_of_it(word))
         };
         match self.language {
             Some("en") => after(),
@@ -866,13 +931,16 @@ impl Recipe<'_> {
             Some(word) => lists.step_then.has(&word.text),
             None => step[..at].iter().all(|word| adverb(&word)),
         };
+        // What the verb is done to sits in its clause: *put the meat, speck
+        // and onions back* names three foods (#704).
         let after = at + mention.len;
         opens
             || step.get(after).is_some_and(|next| {
-                lists.step_articles.has(&next.text)
-                    || found
-                        .iter()
-                        .any(|other| other.line != mention.line && other.start == after)
+                next.clause == clause
+                    && (lists.step_articles.has(&next.text)
+                        || found
+                            .iter()
+                            .any(|other| other.line != mention.line && other.start == after))
             })
     }
 
@@ -926,6 +994,67 @@ impl Recipe<'_> {
             && mentions.iter().any(|longer| {
                 longer.line == mention.line && mention.within(longer) && more_before(longer.start)
             })
+    }
+
+    /// Whether a mention names a part of its line's amount: a
+    /// [`Words::step_portions`] word or an amount before it in its clause,
+    /// *a little salt*, *the rest of the butter*, *2 tbsp of the oil*. A line
+    /// a Step named only in part is not used up by it (#704).
+    fn named_in_part(&self, step: &[Word], mention: &Mention) -> bool {
+        let lists = self.lists;
+        let clause = step[mention.start].clause;
+        step[..mention.start]
+            .iter()
+            .rev()
+            .take_while(|word| word.clause == clause)
+            .any(|word| {
+                lists.step_portions.has(&word.text)
+                    || word.text.starts_with(|c: char| c.is_ascii_digit())
+            })
+    }
+
+    /// Whether a mention names what an earlier Step already made of its line,
+    /// which went in then (#704): *the cooked mince*, *put the meat back*, or
+    /// *the noodles* after a Step that boiled them. A part of the line's
+    /// amount is going in again, *the green portion of scallions*, and so is a
+    /// line an earlier Step only cut or mixed: *brown the meat* after *cut
+    /// the meat*.
+    fn already_made(&self, step: &[Word], mention: &Mention, earlier: &Earlier) -> bool {
+        let lists = self.lists;
+        if !earlier.used.contains(&mention.line) {
+            return false;
+        }
+        if self.named_in_part(step, mention) {
+            return false;
+        }
+        let here = &step[mention.start];
+        let before = step[..mention.start]
+            .last()
+            .filter(|word| word.clause == here.clause);
+        // *Back* reaches across the commas of the one thing the cook does,
+        // from the word that opens it to the next: *then put the meat, speck
+        // and onions back*, but not the salt added before *then*.
+        let opens = |word: &Word| {
+            lists.step_then.has(&word.text) || lists.step_next_actions.has(&word.text)
+        };
+        let from = step[..mention.start]
+            .iter()
+            .rposition(|word| word.sentence != here.sentence || opens(word))
+            .map_or(0, |at| at + 1);
+        let put_back = step[from..]
+            .iter()
+            .take_while(|word| word.sentence == here.sentence)
+            .enumerate()
+            .take_while(|(at, word)| from + at <= mention.start || !opens(word))
+            .any(|(_, word)| lists.step_back.has(&word.text));
+        // *The noodles*, *cooked mince*: a line an earlier Step cooked,
+        // named after an article or a word saying what was done to it. *The
+        // chopped onion* after *chop the onion* is still going in.
+        let the_cooked_one = earlier.cooked.contains(&mention.line)
+            && before.is_some_and(|word| {
+                lists.step_articles.has(&word.text) || lists.describing.has(&word.text)
+            });
+        put_back || the_cooked_one
     }
 
     /// The lines a shared tail names beside the one it names whole: *light
@@ -988,15 +1117,16 @@ impl Recipe<'_> {
     fn uses_of(
         &self,
         step: &[Word],
-        used_before: &[usize],
+        earlier: &Earlier,
         own_section: &mut Option<usize>,
-    ) -> Vec<usize> {
+    ) -> StepUses {
         let lists = self.lists;
+        let used_before = &earlier.used[..];
         let sections_named = self.sections_named(step);
         let found: Vec<Mention> = self
             .lines
             .iter()
-            .flat_map(|line| mentions_of(lists, line, step))
+            .flat_map(|line| mentions_of(lists, line, step, self.language))
             .collect();
         let mut mentions: Vec<Mention> = found
             .iter()
@@ -1066,6 +1196,13 @@ impl Recipe<'_> {
                 })
             })
             .collect();
+        // What an earlier Step already made, read on the longest mention, so
+        // *sum* of *the choy sum* goes with it (#704).
+        let made_before: Vec<Mention> = kept
+            .iter()
+            .map(|(mention, _)| *mention)
+            .filter(|mention| self.already_made(step, mention, earlier))
+            .collect();
 
         // Each place a food is named, and the lines it may mean there: the
         // food itself before something made from it, so *the garlic* is the
@@ -1102,7 +1239,16 @@ impl Recipe<'_> {
             if !itself.is_empty() {
                 place.lines.retain(|line| itself.contains(line));
             }
+            // Only then does the food an earlier Step made go, so *put the
+            // onions back* names neither the sliced onions nor the carrot
+            // and onion mix (#704).
+            place.lines.retain(|&line| {
+                !made_before
+                    .iter()
+                    .any(|made| (made.start, made.len) == *at && made.line == line)
+            });
         }
+        places.retain(|(_, place)| !place.lines.is_empty());
 
         // The section this Step works in: the one most of the places it names
         // a food point to, or the last Step's where no one section leads
@@ -1204,8 +1350,51 @@ impl Recipe<'_> {
         }
         uses.sort_unstable();
         uses.dedup();
-        uses
+        let cooked = uses
+            .iter()
+            .copied()
+            .filter(|&line| {
+                kept.iter().any(|(mention, _)| {
+                    mention.line == line
+                        && !self.named_in_part(step, mention)
+                        && self.cooks(step, step[mention.start].sentence)
+                })
+            })
+            .collect();
+        StepUses {
+            lines: uses,
+            cooked,
+        }
     }
+
+    /// Whether a sentence of a Step cooks what it names: one of
+    /// [`Words::step_cooks`] stands where a verb does, opening a clause or
+    /// after *then* or *and*. *Bring the water to the boil*, *off the heat*
+    /// and *add the brown sugar* cook nothing (#704).
+    fn cooks(&self, step: &[Word], sentence: usize) -> bool {
+        let lists = self.lists;
+        step.iter().enumerate().any(|(at, word)| {
+            word.sentence == sentence
+                && !word.not_going_in
+                && lists.step_cooks.has(&word.text)
+                && at
+                    .checked_sub(1)
+                    .map(|before| &step[before])
+                    .is_none_or(|before| {
+                        before.clause != word.clause
+                            || lists.step_then.has(&before.text)
+                            || lists.step_and.has(&before.text)
+                    })
+        })
+    }
+}
+
+/// The lines one Step uses, and those among them it used up by cooking them,
+/// named in a sentence that cooks with no part of their amount said: the
+/// cooked thing from then on (#704).
+struct StepUses {
+    lines: Vec<usize>,
+    cooked: Vec<usize>,
 }
 
 #[cfg(test)]
@@ -1670,7 +1859,6 @@ mod tests {
                     "Cuisez jusqu'à ce que l'oignon soit tendre et ajoutez l'ail.",
                     "Bate hasta que la mantequilla y el azúcar blanqueen y añade la harina.",
                     "Cocina hasta que esté dorado, luego agrega el ajo.",
-                    "Cocina hasta que esté dorado luego agrega el ajo.",
                 ],
                 &[
                     "beurre",
@@ -1684,7 +1872,16 @@ mod tests {
                     "ajo"
                 ]
             ),
-            [step(&[2]), step(&[4]), step(&[7]), step(&[8]), step(&[8])],
+            [step(&[2]), step(&[4]), step(&[7]), step(&[8])],
+        );
+        // On its own, since after the Step before it *el ajo* would be the
+        // garlic that Step cooked (#704).
+        assert_eq!(
+            uses(
+                &["Cocina hasta que esté dorado luego agrega el ajo."],
+                &["ajo"]
+            ),
+            [step(&[0])],
         );
         assert_eq!(
             uses(
@@ -1950,7 +2147,9 @@ mod tests {
             uses_in(
                 Some("en"),
                 &[
-                    "Brown the chicken.",
+                    // Seasoned, not cooked, so *sear the thighs* still adds
+                    // them (#704).
+                    "Season the chicken.",
                     "Add the garlic, kale, salmon and pork.",
                     "Stir in the vanilla and the miso.",
                     "Grate over the parmesan.",
@@ -2141,18 +2340,20 @@ mod tests {
                 step(&[]),
                 step(&[22]),
                 step(&[10]),
-                step(&[10]),
+                // The seared chicken is taken out, nestled back in and taken
+                // out again, and goes in once (#704).
+                step(&[]),
                 step(&[]),
                 step(&[17]),
                 step(&[18, 19]),
                 step(&[20]),
                 step(&[16]),
-                step(&[10, 21]),
+                step(&[21]),
                 step(&[]),
                 step(&[24, 25, 26, 27, 28, 29]),
                 step(&[30, 31, 32]),
                 step(&[]),
-                step(&[10]),
+                step(&[]),
                 step(&[16]),
                 step(&[34, 35, 36]),
                 step(&[37]),
@@ -2206,12 +2407,14 @@ mod tests {
                 step(&[1, 4]),
                 step(&[5]),
                 step(&[1]),
-                step(&[1]),
+                // Fried in the Step before, the chicken is set aside and put
+                // back, and goes in no more (#704).
+                step(&[]),
                 step(&[7]),
                 step(&[8]),
                 step(&[9, 10, 11, 12, 13, 14, 15, 16]),
                 step(&[]),
-                step(&[1]),
+                step(&[]),
                 step(&[]),
                 step(&[18, 19]),
             ]
@@ -2740,8 +2943,11 @@ mod tests {
                 step(&[5, 6, 7, 8]),
                 step(&[13, 14, 15, 16, 17, 18, 19, 20]),
                 step(&[9, 10]),
-                // *More chili oil* is beyond the sauce's five spoons.
-                step(&[1, 2, 9, 10, 11]),
+                // *More chili oil* is beyond the sauce's five spoons, and the
+                // noodles, the choy sum and the *cooked mince* went in
+                // earlier: only the scallions' green portion and the peanuts
+                // are new (#704).
+                step(&[1, 11]),
             ]
         );
     }
@@ -2782,7 +2988,7 @@ mod tests {
                 step(&[5, 6, 7, 8]),
                 step(&[13, 14, 15, 16, 17, 18, 19, 20]),
                 step(&[9, 10]),
-                step(&[1, 2, 9, 10, 11]),
+                step(&[1, 11]),
             ]
         );
     }
@@ -3125,6 +3331,274 @@ mod tests {
         assert_eq!(
             uses_as_read(NO_DISH, "en", &["Brown the onion and mince."], lines),
             [step(&[0, 1])]
+        );
+    }
+
+    /// The Sample Library's Beef bourguignon, as `sample-library/story.json`
+    /// writes its two-day rework: the recipe #704 was filed from.
+    const BOURGUIGNON_LINES: &[&str] = &[
+        "1.2 kg beef (half sucadelappen, half runderriblappen)",
+        "200 g sliced speck",
+        "400 g mushrooms",
+        "400 g leeks",
+        "500 g carrot and onion mix",
+        "300 g sliced onions",
+        "1 bottle red wine",
+        "sage",
+        "thyme",
+        "pepper",
+        "salt",
+        "3 beef stock cubes",
+        "#Optional seasoning adjustments",
+        "chilli powder",
+        "fish sauce",
+        "soy sauce",
+        "miso",
+    ];
+    const BOURGUIGNON_STEPS: &[&str] = &[
+        "Cut the meat into cubes of about 5 cm.",
+        "Brown the meat in a very hot pan until it is well coloured outside but not cooked through. Deglaze the pan with a sweet wine or brandy.",
+        "Cook the speck and onions in the beef fat. Lift them out and keep the fat in the pan.",
+        "Brown the rest of the vegetables, mushrooms and leeks included, in that fat. A little salt helps draw the water out.",
+        "Add the wine, the herbs, salt, pepper and the stock cubes, then put the meat, speck and onions back.",
+        "Make sure the liquid covers everything, topping up with boiled water if needed. Simmer with the lid on for 45 minutes to an hour.",
+        "Taste and adjust: fish sauce, soy sauce, pepper, salt or miso, and chilli powder now if you want it.",
+        "Simmer another hour or more, two to three hours in all on the first day.",
+        "On the second day, simmer for a couple more hours. If the meat is still chewy, let it rest and give it another hour or two later.",
+    ];
+    /// What each Step of it adds, in English and in its French translation.
+    const BOURGUIGNON_USES: &[&[usize]] = &[
+        // *The meat* is the beef, and the beef stock cubes are no meat.
+        &[0],
+        // A sweet wine is no red wine.
+        &[0],
+        // The beef fat is no beef, and the onions are the sliced ones, not
+        // the carrot and onion mix.
+        &[1, 5],
+        &[2, 3, 10],
+        // *The herbs* are the sage and the thyme, and what is put back went
+        // in before.
+        &[6, 7, 8, 9, 10, 11],
+        &[],
+        &[9, 10, 13, 14, 15, 16],
+        &[],
+        // *If the meat is still chewy* adds no meat.
+        &[],
+    ];
+
+    #[test]
+    fn the_bourguignon_lists_each_line_at_the_step_it_goes_in() {
+        let want: Vec<_> = BOURGUIGNON_USES.iter().map(|uses| step(uses)).collect();
+        assert_eq!(
+            uses_as_read(
+                "Beef bourguignon",
+                "en",
+                BOURGUIGNON_STEPS,
+                BOURGUIGNON_LINES
+            ),
+            want
+        );
+    }
+
+    #[test]
+    fn the_french_bourguignon_lists_the_same_lines() {
+        let lines = &[
+            "1,2 kg de bœuf (moitié sucadelappen, moitié runderriblappen)",
+            "200 g de speck en tranches",
+            "400 g de champignons",
+            "400 g de poireaux",
+            "500 g de mélange carottes et oignons",
+            "300 g d'oignons émincés",
+            "1 bouteille de vin rouge",
+            "sauge",
+            "thym",
+            "poivre",
+            "sel",
+            "3 cubes de bouillon de bœuf",
+            "#Ajustements facultatifs",
+            "piment en poudre",
+            "sauce de poisson",
+            "sauce soja",
+            "miso",
+        ];
+        let steps = &[
+            "Coupez la viande en cubes d'environ 5 cm.",
+            "Saisissez la viande dans une poêle très chaude jusqu'à ce qu'elle soit bien colorée sans être cuite à cœur. Déglacez avec un vin doux ou du cognac.",
+            "Faites revenir le speck et les oignons dans la graisse du bœuf. Retirez-les en gardant la graisse.",
+            "Faites dorer le reste des légumes, champignons et poireaux compris, dans cette graisse. Un peu de sel les aide à rendre leur eau.",
+            "Ajoutez le vin, les herbes, le sel, le poivre et les cubes de bouillon, puis remettez la viande, le speck et les oignons.",
+            "Le liquide doit tout couvrir : complétez avec de l'eau bouillante si besoin. Laissez mijoter à couvert 45 minutes à une heure.",
+            "Goûtez et rectifiez : sauce de poisson, sauce soja, poivre, sel ou miso, et le piment maintenant si vous en voulez.",
+            "Laissez mijoter encore une heure ou plus, deux à trois heures en tout le premier jour.",
+            "Le deuxième jour, laissez mijoter encore deux heures. Si la viande résiste, laissez-la reposer et reprenez la cuisson une heure ou deux plus tard.",
+        ];
+        let want: Vec<_> = BOURGUIGNON_USES.iter().map(|uses| step(uses)).collect();
+        // *Un peu de sel* uses a little of the salt, so *le sel* of the next
+        // Step still adds it.
+        assert_eq!(uses_as_read("Bœuf bourguignon", "fr", steps, lines), want);
+    }
+
+    #[test]
+    fn another_kind_of_the_food_is_another_food() {
+        let lines = &["red wine", "sliced onions"];
+        assert_eq!(
+            uses_in(
+                Some("en"),
+                &[
+                    "Deglaze with a sweet wine.",
+                    "Add the red wine.",
+                    "Add the wine and the chopped onions.",
+                ],
+                lines
+            ),
+            [step(&[]), step(&[0]), step(&[0, 1])],
+            "a cut is no kind, so *the chopped onions* are the sliced ones"
+        );
+        assert_eq!(
+            uses_in(
+                Some("en"),
+                &["Pour in the hot stock."],
+                &["low-sodium chicken stock"]
+            ),
+            [step(&[0])],
+            "a warmth is no kind either"
+        );
+        assert_eq!(
+            uses_in(Some("fr"), &["Déglacez avec un vin doux."], &["vin rouge"]),
+            [step(&[])]
+        );
+    }
+
+    #[test]
+    fn what_a_food_leaves_in_the_pan_is_no_part_of_it() {
+        assert_eq!(
+            uses_in(
+                Some("en"),
+                &["Cook the onions in the bacon fat."],
+                &["bacon", "onions"]
+            ),
+            [step(&[1])]
+        );
+    }
+
+    #[test]
+    fn the_meat_and_the_herbs_name_the_lines_they_stand_for() {
+        let lines = &["chuck", "beef stock cubes", "thyme", "bay leaves", "salt"];
+        assert_eq!(
+            uses_in(
+                Some("en"),
+                &["Cut the meat into cubes.", "Add the herbs and the salt.",],
+                lines
+            ),
+            [step(&[0]), step(&[2, 3, 4])],
+            "a stock cube holds beef, but beef is no main word of it"
+        );
+        assert_eq!(
+            uses_in(
+                Some("en"),
+                &["Add the herbs."],
+                &["1 tsp ground coriander", "parsley"]
+            ),
+            [step(&[1])],
+            "ground coriander is a spice"
+        );
+    }
+
+    #[test]
+    fn a_line_an_earlier_step_cooked_is_not_listed_again() {
+        let lines = &["noodles", "ground pork", "chicken", "peanuts"];
+        assert_eq!(
+            uses_in(
+                Some("en"),
+                &[
+                    "Boil the noodles.",
+                    "Fry the mince.",
+                    "Brown the chicken, then set the chicken aside.",
+                    "Combine the noodles with the cooked mince and crushed peanuts. Put the chicken back.",
+                ],
+                lines
+            ),
+            [step(&[0]), step(&[1]), step(&[2]), step(&[3])]
+        );
+    }
+
+    #[test]
+    fn a_line_an_earlier_step_only_cut_or_named_in_part_is_listed_again() {
+        assert_eq!(
+            uses_in(Some("en"), &["Cut the beef.", "Brown the beef."], &["beef"]),
+            [step(&[0]), step(&[0])],
+            "the beef goes in the pan in the Step that browns it"
+        );
+        assert_eq!(
+            uses_in(
+                Some("en"),
+                &["Chop the onion.", "Fry the chopped onion in the oil."],
+                &["onion", "oil"]
+            ),
+            [step(&[0]), step(&[0, 1])],
+            "*the chopped onion* is the onion the Step before only cut"
+        );
+        assert_eq!(
+            uses_in(
+                Some("en"),
+                &["Melt the butter.", "Add the butter to the flour."],
+                &["butter", "flour"]
+            ),
+            [step(&[0]), step(&[0, 1])],
+            "melted butter is no finished part"
+        );
+        assert_eq!(
+            uses_in(
+                Some("en"),
+                &[
+                    "Melt half the butter with a little salt.",
+                    "Add the rest of the butter and the salt.",
+                ],
+                &["butter", "salt"]
+            ),
+            [step(&[0, 1]), step(&[0, 1])],
+            "half the butter and a little salt leave the rest of both to add"
+        );
+    }
+
+    #[test]
+    fn only_a_cooking_word_where_a_verb_stands_cooks_its_sentence() {
+        assert_eq!(
+            uses_in(
+                Some("en"),
+                &[
+                    "Bring a large pan of salted water to the boil and chop the parsley.",
+                    "Cook the spaghetti.",
+                    "Toss the spaghetti with the parsley.",
+                ],
+                &["spaghetti", "parsley"]
+            ),
+            [step(&[1]), step(&[0]), step(&[1])],
+            "*to the boil* cooks nothing, and the spaghetti is cooked"
+        );
+        assert_eq!(
+            uses_in(
+                Some("nl"),
+                &["Snijd het fruit.", "Leg het fruit op de taart."],
+                &["fruit"]
+            ),
+            [step(&[0]), step(&[0])],
+            "*het fruit* is the noun, not *fruit* as in fry"
+        );
+    }
+
+    #[test]
+    fn back_reaches_only_the_thing_the_cook_does_with_it() {
+        assert_eq!(
+            uses_in(
+                Some("en"),
+                &[
+                    "Brown the beef with the salt.",
+                    "Add salt, then put the beef back.",
+                ],
+                &["beef", "salt"]
+            ),
+            [step(&[0, 1]), step(&[1])]
         );
     }
 }

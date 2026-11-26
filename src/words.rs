@@ -600,6 +600,17 @@ word_lists! {
     /// stock*, *bouillon de poulet*, *caldo de pollo* (#439).
     step_stocks: Loose,
 
+    /// The words for what a food leaves in the pan, which holds none of the
+    /// food named before it: *cook the onions in the beef fat* adds no beef
+    /// (#704).
+    step_left_in_the_pan: Loose,
+
+    /// The words that tell one kind of a food from another, its colour or
+    /// its taste: *a sweet wine* is no *red wine* (#704). Never a warmth or
+    /// a cut, since *the hot stock* is the chicken stock and *the chopped
+    /// onions* the sliced ones.
+    step_kinds: Loose,
+
     /// What joins a French or Spanish thing to the food that describes it, as
     /// *de* does in *le mélange de tomates*.
     step_of: Loose,
@@ -639,6 +650,22 @@ word_lists! {
     /// chili oil*: a line an earlier Step already used, named after it, is
     /// not going in again (#697).
     step_more: Loose,
+
+    /// The words of a Step that cooks what it uses: a line it used is the
+    /// cooked thing from then on, so *combine the noodles* after *boil
+    /// noodles* lists no noodles again (#704). Never a word that only cuts or
+    /// mixes, since *add the garlic* after *mince the garlic* adds it.
+    step_cooks: Loose,
+
+    /// The words that put back what an earlier Step took out, anywhere in
+    /// the sentence: *put the meat, speck and onions back* adds none of the
+    /// three again (#704).
+    step_back: Loose,
+
+    /// The words for a part of a line's amount, before its food in a clause:
+    /// *the green portion of scallions*, *the rest of the butter*. A line an
+    /// earlier Step used, named after one, is going in again (#704).
+    step_portions: Loose,
 
     /// The words that make an amount in a Step one piece's share, *divide
     /// into four pieces, **each** weighing about 280g*: more pizzas are more
@@ -690,7 +717,8 @@ word_lists! {
 
     /// The plurals no rule reaches, folded, each with its singular: Dutch
     /// *eieren*, *ei*, read by [`crate::dutch`], and English *leaves*, *leaf*,
-    /// read where a scaled line counts anew (#680).
+    /// read where a scaled line counts anew (#680). Both also word a Yield's
+    /// noun for one and for many, `units::yield_nouns` (#705).
     irregular: HashMap<String, String>,
 
     /// Each Unit of the closed set's spellings, by the Unit's id. Written the

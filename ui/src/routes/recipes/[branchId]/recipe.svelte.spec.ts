@@ -284,6 +284,7 @@ function forked(extra: Answers = {}) {
 					created_at: '2026-08-09T00:00:00Z',
 					translates_version_id: null,
 					scaled_to: null,
+					yield_nouns: null,
 					language: 'en',
 					// A recipe that composes nothing, which is nearly all of them (#50).
 					components: [],
@@ -1223,6 +1224,7 @@ describe('the recipe screen', () => {
 				{
 					sequence: 1,
 					scaled_to: null,
+					yield_nouns: null,
 					version_id: 'v_mine',
 					parent_version_id: null,
 					hand_id: 'h_mine',

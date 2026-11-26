@@ -723,6 +723,8 @@
 	const otherKitchen = $derived(divergence ? branchPlainName(divergence.theirs) : '');
 
 	const content = $derived(here?.content ?? recipe?.versions.at(-1)?.content);
+	/** The Yield's noun for one and for many, for the head the page reads (#705). */
+	const yieldNouns = $derived(recipe?.versions.at(-1)?.yield_nouns);
 
 	// ---- an agent's Job on it (#277) --------------------------------------
 	//
@@ -1176,7 +1178,7 @@
 			{/if}
 
 			{#if planned}
-				{@const amount = said(planned.wanted)}
+				{@const amount = said(planned.wanted, yieldNouns)}
 				<p
 					class="mx-gutter mt-3 border-l-3 border-accent bg-card px-3 py-2 text-read"
 					role="status"
@@ -1384,6 +1386,7 @@
 							{#if !divergence}
 								<HowMuchRow
 									written={content.yield}
+									nouns={yieldNouns}
 									scaledTo={pageScaledTo}
 									bind:choosing={choosingHowMuch}
 									failed={howMuchFailed}
@@ -1685,6 +1688,7 @@
 		branchId={recipe.branch_id}
 		title={content.title}
 		written={content.yield}
+		nouns={yieldNouns}
 		onPlanned={(where, wanted) => {
 			planning = false;
 			planned = { where, wanted };

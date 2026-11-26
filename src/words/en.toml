@@ -97,6 +97,9 @@ made_from = [
     "broth", "bouillon", "sauce", "flour", "meal", "oil", "butter", "milk",
     "cream", "syrup", "vinegar", "purée", "puree", "concentrate", "jam",
     "jelly", "water",
+    # *500 g carrot and onion mix* is no onion where a line of onions
+    # stands beside it (#704).
+    "mix",
 ]
 made_here = [
     "sauce", "mixture", "marinade", "dressing", "batter", "dough", "glaze",
@@ -166,6 +169,14 @@ step_for = [
 step_stocks = [
     "stock", "broth", "bouillon",
 ]
+step_kinds = [
+    "red", "white", "black", "green", "yellow", "brown", "pink", "golden",
+    "sweet", "dry", "light", "dark", "smoked", "salted", "unsalted",
+    "sweetened", "unsweetened",
+]
+step_left_in_the_pan = [
+    "fat", "grease", "drippings", "juices",
+]
 step_ingredients = [
     "ingredient", "ingredients",
 ]
@@ -188,6 +199,18 @@ step_except = [
 ]
 step_more = [
     "more",
+]
+step_cooks = [
+    "cook", "boil", "fry", "brown", "sear", "roast", "bake", "grill", "toast",
+    "simmer", "saute", "poach", "steam", "braise", "stew", "blanch", "render",
+    "caramelise", "caramelize",
+]
+step_back = [
+    "back", "return",
+]
+step_portions = [
+    "rest", "remaining", "remainder", "half", "other", "portion", "part",
+    "little", "bit", "some", "pinch", "splash", "dash", "drizzle", "handful",
 ]
 step_each = [
     "each", "apiece",
@@ -316,6 +339,7 @@ hour = [
 # --- The plurals no rule of `units::english_plural` reaches, each with its singular ---
 
 [irregular]
+"people" = "person"
 "leaves" = "leaf"
 "loaves" = "loaf"
 "halves" = "half"
@@ -334,4 +358,15 @@ hour = [
     "ground beef", "ground pork", "ground lamb", "ground veal", "ground turkey",
     "ground chicken", "ground meat", "minced beef", "minced pork", "minced lamb",
     "minced meat",
+]
+# *Cut the meat* is the beef, though no beef stock cube is the meat: a name
+# here counts only where it holds the line's main word (#704).
+"meat" = [
+    "beef", "pork", "lamb", "veal", "mutton", "venison", "goat", "rabbit",
+    "chicken", "duck", "turkey", "chuck", "brisket", "shank", "oxtail",
+]
+"herbs" = [
+    "sage", "thyme", "rosemary", "parsley", "basil", "oregano", "marjoram",
+    "tarragon", "dill", "chives", "mint", "cilantro", "chervil",
+    "bay leaf", "bay leaves", "savory",
 ]

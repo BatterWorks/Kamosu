@@ -19,6 +19,19 @@ import type { GetRecipeOutput } from '#lib/api/catalogue.js';
 
 export type Written = GetRecipeOutput['versions'][number]['content']['yield'];
 export type Wanted = GetRecipeOutput['versions'][number]['scaled_to'];
+/** The Yield's noun for one and for many, from the Core (#705). */
+export type YieldNouns = GetRecipeOutput['versions'][number]['yield_nouns'];
+
+/**
+ * The recipe's noun worded for `count` (#705): `1 serving`, `2 servings`.
+ * The counts a reader is offered are whole and never under one, so one is
+ * the one count that takes the singular. With no nouns from the Core the
+ * noun is as the recipe wrote it.
+ */
+export function nounFor(count: string, written: Written, nouns?: YieldNouns): string {
+	if (!nouns) return written?.noun ?? '';
+	return parseAmount(count) === 1 ? nouns.one : nouns.many;
+}
 
 /**
  * Whether a choice is a multiplier (`×2`) rather than an amount of what the
@@ -126,9 +139,10 @@ export function counts(written: Written): boolean {
  * A Yield as a reader says it — `24 servings`, or `×2` for a multiplier — or
  * null for none. What a recipe makes is said the same way.
  */
-export function said(wanted: Wanted | Written): string | null {
+export function said(wanted: Wanted | Written, nouns?: YieldNouns): string | null {
 	if (!wanted) return null;
-	return isMultiplier(wanted) ? `×${wanted.amount}` : `${wanted.amount} ${wanted.noun}`;
+	if (isMultiplier(wanted)) return `×${wanted.amount}`;
+	return `${wanted.amount} ${nounFor(wanted.amount, wanted, nouns)}`;
 }
 
 /**

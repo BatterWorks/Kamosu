@@ -6612,12 +6612,24 @@ fn recipe_schema() -> Value {
                         // The Yield `measured` and `components` were scaled
                         // to, or null where they are as written (#109).
                         "scaled_to": wanted_yield_schema(),
+                        // The Yield's noun worded for one and for many in
+                        // the recipe's Language, or null with no Yield, so a
+                        // screen counting it says `1 serving` (#705).
+                        "yield_nouns": {
+                            "type": ["object", "null"],
+                            "properties": {
+                                "one": { "type": "string" },
+                                "many": { "type": "string" },
+                            },
+                            "required": ["one", "many"],
+                            "additionalProperties": false,
+                        },
                     },
                     "required": [
                         "sequence", "version_id", "parent_version_id", "hand_id",
                         "name", "change_note", "created_at", "content", "readings",
                         "measured", "cooking", "components", "translates_version_id", "language",
-                        "scaled_to"
+                        "scaled_to", "yield_nouns"
                     ],
                     "additionalProperties": false,
                 },

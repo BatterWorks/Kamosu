@@ -135,6 +135,13 @@ step_for = [
 step_stocks = [
     "caldo",
 ]
+step_kinds = [
+    "tinto", "blanco", "blanca", "negro", "negra", "verde", "dulce", "seco",
+    "seca", "ahumado", "ahumada", "claro", "clara", "oscuro", "oscura",
+]
+step_left_in_the_pan = [
+    "grasa",
+]
 step_of = [
     "de", "del",
 ]
@@ -159,6 +166,18 @@ step_except = [
 ]
 step_more = [
     "más",
+]
+step_cooks = [
+    "cocina", "cocinar", "cuece", "cocer", "hierve", "hervir", "frie", "freir",
+    "sofrie", "sofreir", "dora", "dorar", "asa", "asar", "hornea", "hornear",
+    "saltea", "saltear", "sella", "sellar", "guisa", "guisar",
+]
+step_back = [
+    "devuelve", "devolver", "vuelve", "regresa",
+]
+step_portions = [
+    "resto", "restante", "restantes", "mitad", "otra", "otro", "parte", "poco",
+    "pizca", "chorrito", "punado", "algo",
 ]
 step_each = [
     "cada",
