@@ -193,6 +193,12 @@ step_until = ["tot", "totdat"]
 step_when = ["wanneer", "zodra", "terwijl", "nadat"]
 step_for = ["voor"]
 step_stocks = ["bouillon", "fond"]
+step_kinds = [
+    "rood", "rode", "wit", "witte", "zwart", "zwarte", "groen", "groene",
+    "zoet", "zoete", "droog", "droge", "gerookt", "gerookte", "licht",
+    "lichte", "donker", "donkere",
+]
+step_left_in_the_pan = ["vet"]
 step_of = ["van"]
 step_ingredients = ["ingredient", "ingredienten"]
 step_articles = ["de", "het", "een", "n", "deze", "die", "dit", "dat"]
@@ -204,6 +210,16 @@ step_next_actions = [
 step_and = ["en"]
 step_except = ["behalve"]
 step_more = ["meer"]
+step_cooks = [
+    "bak", "bakken", "kook", "koken", "braad", "braden", "fruit", "fruiten",
+    "rooster", "roosteren", "sudder", "sudderen", "smoor", "smoren", "stoof",
+    "stoven", "blancheer", "grill", "grillen", "schroei",
+]
+step_back = ["terug"]
+step_portions = [
+    "rest", "overige", "resterende", "helft", "andere", "deel", "beetje",
+    "snufje", "scheutje", "handje",
+]
 step_each = ["elk", "elke"]
 step_each_time = ["keer", "maal"]
 
