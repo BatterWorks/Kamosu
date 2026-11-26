@@ -11,7 +11,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/svelte';
+import { cleanup, render, screen, fireEvent, within } from '@testing-library/svelte';
 import { standIn, type Answers, type Refusal } from '#lib/api/stand-in.js';
 import { reached, refreshed } from '#lib/offline/device.svelte.js';
 import { page } from '$app/state';
@@ -21,6 +21,13 @@ import CookingTestHarness from './CookingTestHarness.svelte';
 import { fresh } from './fresh';
 import { keepingForTests } from '../../../testing/render';
 import { putMistakeAway } from '#lib/mistake.svelte.js';
+
+// A running timer is kept on the device under its cooking's id, and every
+// test here cooks `at_1`: one test's timer must not still run in the next.
+afterEach(() => {
+	for (const key of Object.keys(localStorage))
+		if (key.startsWith('kamosu.timer.')) localStorage.removeItem(key);
+});
 
 const INGREDIENTS = [
 	{ kind: 'section' as const, text: 'For the cutlets' },
@@ -323,6 +330,48 @@ describe('the cooking screen', () => {
 		expect(await screen.findByText('about 240 g')).toBeInTheDocument();
 	});
 
+	/** Three lines on the first Step. */
+	const busy = () =>
+		withCooking({
+			steps: [null, { uses: [1, 2, 3], by_hand: false, timer_seconds: null }, null, null],
+		});
+	const busyList = async () =>
+		(await screen.findByRole('button', { name: /chicken/i })).closest('ul');
+
+	it("keeps a busy Step's amounts in one column where they fit (#681)", async () => {
+		// jsdom lays nothing out, so the body fits.
+		await cook({ get_recipe: busy() });
+		expect(await busyList()).not.toHaveClass('columns-2');
+		expect(await exactly('2 chicken breasts')).toHaveClass('text-panel-figure');
+	});
+
+	it('puts them in two columns once one runs the Step past the foot (#681)', async () => {
+		// Chosen by count, two columns squeezed four lines into small type above
+		// a short Step (round 1 of #681's climb). Here the body is told it runs
+		// twice past its box.
+		const body = (element: HTMLElement) => element.classList.contains('overflow-y-auto');
+		Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
+			configurable: true,
+			get(this: HTMLElement) {
+				return body(this) ? 1000 : 0;
+			},
+		});
+		Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
+			configurable: true,
+			get(this: HTMLElement) {
+				return body(this) ? 500 : 0;
+			},
+		});
+		try {
+			await cook({ get_recipe: busy() });
+			await vi.waitFor(async () => expect(await busyList()).toHaveClass('columns-2'));
+			expect(await exactly('2 chicken breasts')).toHaveClass('text-line');
+		} finally {
+			Reflect.deleteProperty(HTMLElement.prototype, 'scrollHeight');
+			Reflect.deleteProperty(HTMLElement.prototype, 'clientHeight');
+		}
+	});
+
 	it('shows the Step alone on a step that uses no line (#681)', async () => {
 		// Step index 1 uses the chicken and the panko; index 2 uses the water.
 		// This fixture's `uses: []` case is reached by answering with one.
@@ -377,6 +426,37 @@ describe('the cooking screen', () => {
 		}
 	});
 
+	it('takes a running timer back when the cook leaves and comes back', async () => {
+		vi.useFakeTimers();
+		try {
+			await cook({ start_attempt: attempt({ current_step_index: 2 }) });
+			await vi.waitFor(() => screen.getByRole('button', { name: 'Set a timer for 7 min' }));
+			await fireEvent.click(screen.getByRole('button', { name: 'Set a timer for 7 min' }));
+			await vi.advanceTimersByTimeAsync(60_000);
+			// Off to the recipe, or the phone reloads the page: the screen goes.
+			cleanup();
+			await vi.advanceTimersByTimeAsync(60_000);
+			await cook({ start_attempt: attempt({ current_step_index: 2 }) });
+			await vi.waitFor(() =>
+				expect(screen.getByRole('button', { name: /timer: 5:00/i })).toBeInTheDocument(),
+			);
+			// And one that ran out meanwhile says so.
+			cleanup();
+			await vi.advanceTimersByTimeAsync(10 * 60_000);
+			await cook({ start_attempt: attempt({ current_step_index: 2 }) });
+			await vi.waitFor(() =>
+				expect(screen.getByRole('button', { name: /time is up/i })).toBeInTheDocument(),
+			);
+			// Put away, it stays away.
+			await fireEvent.click(screen.getByRole('button', { name: /time is up/i }));
+			cleanup();
+			await cook({ start_attempt: attempt({ current_step_index: 2 }) });
+			await vi.waitFor(() => screen.getByRole('button', { name: 'Set a timer for 7 min' }));
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it('stops a running timer on a second tap, never on one stray touch (#681)', async () => {
 		vi.useFakeTimers();
 		try {
@@ -419,6 +499,32 @@ describe('the cooking screen', () => {
 			await vi.waitFor(() =>
 				expect(kamosu.calls.map((call) => call.operation)).toContain('finish_attempt'),
 			);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('moves one Step for a bounced double tap on Next, and the next on a later tap', async () => {
+		vi.useFakeTimers();
+		try {
+			// The Core echoes the Step it was sent.
+			await cook({
+				advance_attempt: (input) => attempt({ current_step_index: input.current_step_index ?? 1 }),
+			});
+			await vi.waitFor(() => screen.getByRole('button', { name: 'Next step' }));
+			// The Step on screen, asked now: `exactly` waits on real timers.
+			const on = (text: string) =>
+				screen.queryAllByText(
+					(_, node) => node?.textContent?.trim() === text && node.children.length === 0,
+				).length > 0;
+			await fireEvent.click(screen.getByRole('button', { name: 'Next step' }));
+			await fireEvent.click(screen.getByRole('button', { name: 'Next step' }));
+			await vi.waitFor(() =>
+				expect(on('Pour in the water and simmer for about 7 minutes.')).toBe(true),
+			);
+			await vi.advanceTimersByTimeAsync(1_000);
+			await fireEvent.click(screen.getByRole('button', { name: 'Next step' }));
+			await vi.waitFor(() => expect(on('Season with salt and leave it alone.')).toBe(true));
 		} finally {
 			vi.useRealTimers();
 		}
@@ -503,6 +609,13 @@ describe('the cooking screen', () => {
 			screen.getByLabelText('Take a photograph of this cooking').closest('label'),
 		).toHaveTextContent('Take a photo');
 		expect(screen.getByRole('button', { name: 'Throw this cooking away' })).toBeInTheDocument();
+		// How much, asked again from here though nothing above the Step shows it.
+		await fireEvent.click(screen.getByRole('button', { name: 'Change how much' }));
+		expect(
+			await screen.findByRole('heading', { name: 'How much are you making?' }),
+		).toBeInTheDocument();
+		await fireEvent.click(screen.getByRole('button', { name: 'Back to step 2' }));
+		expect(await exactly('Pour in the water and simmer for about 7 minutes.')).toBeInTheDocument();
 		// Next is the step's one main button, Back the second one beside it.
 		expect(screen.getByRole('button', { name: 'Next step' })).toHaveClass('main-button');
 		expect(screen.getByRole('button', { name: 'Back' })).toHaveClass('second-button');
@@ -583,6 +696,39 @@ describe('the cooking screen on a tablet on the counter (#197)', () => {
 		expect(await exactly('Pour in the water and simmer for about 7 minutes.')).toBeInTheDocument();
 		expect(comingNext()).toContainElement(await exactly('Season with salt and leave it alone.'));
 		expect(within(comingNext()!).getByText('Next · 3/3')).toBeInTheDocument();
+		// Beside the Step, which fits.
+		expect(comingNext()).toHaveClass('roomy:w-[30%]');
+	});
+
+	it('puts the next Step under a Step that beside it would run past the foot', async () => {
+		// jsdom lays nothing out, so the body is told it is twice as tall as
+		// its box: the soup's long step on a tablet on its side, beside a
+		// preview that took a third of the width (round 1 of #681's climb).
+		const body = (element: HTMLElement) => element.classList.contains('overflow-y-auto');
+		Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
+			configurable: true,
+			get(this: HTMLElement) {
+				return body(this) ? 1000 : 0;
+			},
+		});
+		Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
+			configurable: true,
+			get(this: HTMLElement) {
+				return body(this) ? 500 : 0;
+			},
+		});
+		try {
+			await cook({ start_attempt: attempt({ current_step_index: 2 }) }, { room: 'roomy' });
+			expect(
+				await exactly('Pour in the water and simmer for about 7 minutes.'),
+			).toBeInTheDocument();
+			await vi.waitFor(() => expect(comingNext()).not.toHaveClass('roomy:w-[30%]'));
+			// Still shown, under the Step, as on a tablet upright.
+			expect(within(comingNext()!).getByText('Next · 3/3')).toBeInTheDocument();
+		} finally {
+			Reflect.deleteProperty(HTMLElement.prototype, 'scrollHeight');
+			Reflect.deleteProperty(HTMLElement.prototype, 'clientHeight');
+		}
 	});
 
 	it('shows none on the last Step', async () => {
@@ -730,6 +876,22 @@ describe('writing down what you actually cooked', () => {
 		expect(lines).not.toContain('800 ml water');
 	});
 
+	it('adds a line from the start of Note a change, where the cook is', async () => {
+		await cook();
+		await startWriting();
+		// No list to open first: a grader found Add a line only past twelve
+		// other rows (round 1 of #681's climb).
+		expect(screen.queryByDisplayValue('a pinch of salt')).not.toBeInTheDocument();
+		await fireEvent.click(await screen.findByRole('button', { name: /add a line/i }));
+		const added = await screen.findByPlaceholderText(/a line you added/i);
+		await vi.waitFor(() => expect(added).toHaveFocus());
+		// Under this Step's own lines, not inside the whole list.
+		expect(screen.getByRole('button', { name: /the other ingredients/i })).toHaveAttribute(
+			'aria-expanded',
+			'false',
+		);
+	});
+
 	it('inserts a step before this one and leaves the cook standing on it', async () => {
 		const kamosu = await cook();
 		await startWriting();
@@ -738,6 +900,8 @@ describe('writing down what you actually cooked', () => {
 		// The cook is writing down what they have just done, so the new step is
 		// where they now are — empty, and theirs.
 		const step = await screen.findByPlaceholderText(/a step you added/i);
+		// Its field has the caret, so the cook types rather than looks for it.
+		await vi.waitFor(() => expect(step).toHaveFocus());
 		await fireEvent.input(step, { target: { value: 'Rest the crumb twenty minutes.' } });
 		await fireEvent.click(await screen.findByRole('button', { name: /^done$/i }));
 
@@ -795,6 +959,8 @@ describe('photographing the cooking (#77)', () => {
 			});
 		});
 		expect(keeping.kept).toEqual([picture]);
+		// Said on the step itself, where the cook is looking.
+		expect(await screen.findByRole('status')).toHaveTextContent('Photo kept with this cooking.');
 		// Taking one closes More; opened again, it counts what has been taken.
 		await openMore();
 		expect(await screen.findByText('Take a photo · 1 taken')).toBeInTheDocument();
@@ -902,9 +1068,7 @@ describe('photographing the cooking (#77)', () => {
 		);
 		// − and + are behind Another amount, since the four do the same job.
 		expect(screen.queryByRole('button', { name: 'One more' })).toBeNull();
-		expect(
-			screen.getByText('Every amount changes to match, with the recipe’s own beneath it.'),
-		).toBeVisible();
+		expect(screen.getByText('Every amount changes to match.')).toBeVisible();
 
 		await fireEvent.click(screen.getByRole('button', { name: 'Start cooking' }));
 		expect(await exactly('Coat the chicken in panko.')).toBeInTheDocument();
@@ -928,6 +1092,60 @@ describe('photographing the cooking (#77)', () => {
 		).toBeInTheDocument();
 		await fireEvent.click(screen.getByRole('button', { name: 'Start cooking' }));
 		expect(await exactly('Coat the chicken in panko.')).toBeInTheDocument();
+	});
+
+	it("puts tonight's figures in a scaled Step's own words", async () => {
+		// At twice the recipe the Step's own 800 ml was for half the pot: drawn
+		// large beside a small grey (1.6 l), it was the figure a cook measured
+		// (round 1 of #681's climb).
+		const recipe = scaledTo('8', 'servings');
+		const version = recipe.versions[0];
+		const written = 'Pour in 800 ml water and simmer for about 7 minutes.';
+		await cook({
+			start_attempt: attempt({
+				current_step_index: 2,
+				cooking_yield: { amount: '8', noun: 'servings' },
+			}),
+			get_recipe: {
+				...recipe,
+				versions: [
+					{
+						...version,
+						content: {
+							...version.content,
+							steps: version.content.steps.map((row, at) =>
+								at === 2 ? { ...row, text: written } : row,
+							),
+						},
+						measured: {
+							...version.measured,
+							steps: [null, null, [{ written: '800 ml', measured: '1.6 l' }], null],
+						},
+					},
+				],
+			},
+		});
+		const figure = await screen.findByText('1.6 l');
+		expect(figure.closest('.text-step')?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+			'Pour in 1.6 l water and simmer for about 7 minutes.',
+		);
+		expect(screen.queryByText('(1.6 l)')).not.toBeInTheDocument();
+	});
+
+	it("says Note a change holds the recipe's own amounts while cooking another", async () => {
+		await cook({
+			start_attempt: attempt({
+				current_step_index: 1,
+				cooking_yield: { amount: '8', noun: 'servings' },
+			}),
+			get_recipe: scaledTo('8', 'servings'),
+		});
+		await openMore();
+		await fireEvent.click(await screen.findByRole('button', { name: 'Note a change' }));
+		expect(
+			await screen.findByText('These are the recipe’s own amounts, for 4 servings.'),
+		).toBeInTheDocument();
+		expect(await screen.findByDisplayValue('1 cup panko')).toBeInTheDocument();
 	});
 
 	it('stores the Yield on the Attempt, and the scaled amount leads', async () => {
@@ -1109,14 +1327,21 @@ describe('photographing the cooking (#77)', () => {
 			{ advance_attempt: attempt({ cooking_yield: { amount: '8', noun: 'servings' } }) },
 			{ asked: true },
 		);
-		await fireEvent.click(await screen.findByRole('radio', { name: 'Double 8 servings' }));
-		await fireEvent.click(screen.getByRole('button', { name: 'Start cooking' }));
-		expect(
-			await screen.findByText('Amounts scale to 8 servings once Kamosu can be reached.'),
-		).toBeInTheDocument();
-		// The written line stands, and no figure worked out for 4 sits under it.
-		expect(await exactly('1 cup panko')).toBeInTheDocument();
-		expect(screen.queryByText('about 240 g')).not.toBeInTheDocument();
+		await screen.findByRole('radio', { name: 'Double 8 servings' });
+		reached(false);
+		try {
+			await fireEvent.click(screen.getByRole('radio', { name: 'Double 8 servings' }));
+			await fireEvent.click(screen.getByRole('button', { name: 'Start cooking' }));
+			expect(
+				await screen.findByText('Amounts scale to 8 servings once Kamosu can be reached.'),
+			).toBeInTheDocument();
+			// The written line stands, drawn soft, and no figure worked out for 4
+			// sits under it.
+			expect(await exactly('1 cup panko')).toHaveClass('text-cook-soft');
+			expect(screen.queryByText('about 240 g')).not.toBeInTheDocument();
+		} finally {
+			reached(true);
+		}
 	});
 
 	// ---- the amounts catch up with the choice (#674) -------------------------
@@ -1192,11 +1417,12 @@ describe('photographing the cooking (#77)', () => {
 		);
 		await fireEvent.click(await screen.findByRole('radio', { name: 'Double 8 servings' }));
 		await fireEvent.click(screen.getByRole('button', { name: 'Start cooking' }));
-		expect(
-			await screen.findByText('Amounts scale to 8 servings once Kamosu can be reached.'),
-		).toBeInTheDocument();
-		await vi.waitFor(() => expect(shows('about 480 g')).toBe(true), { timeout: 5_000 });
+		// Kamosu is in reach, so the wait is its answer, not the network.
+		expect(await screen.findByText('Working out the amounts for 8 servings…')).toBeInTheDocument();
 		expect(screen.queryByText(/once Kamosu can be reached/)).toBeNull();
+		await vi.waitFor(() => expect(shows('about 480 g')).toBe(true), { timeout: 5_000 });
+		expect(screen.queryByText(/Working out the amounts/)).toBeNull();
+		expect(await exactly('about 480 g')).not.toHaveClass('text-cook-soft');
 	});
 
 	it('shows the later choice where its read overtakes the read of an amount carried in (#674)', async () => {

@@ -63,7 +63,7 @@
 	Kamosu scaled nothing here: every figure came from the Core.
 -->
 <script lang="ts">
-	import { onDestroy, untrack } from 'svelte';
+	import { onDestroy, tick as settledDom, untrack } from 'svelte';
 	import { demo } from '#lib/demo.svelte.js';
 	import { m } from '#lib/paraglide/messages.js';
 	import SheetFrame from '#lib/SheetFrame.svelte';
@@ -71,7 +71,7 @@
 	import { useKamosu } from '#lib/kamosu.js';
 	import { OperationError } from '#lib/api/client.js';
 	import type { GetRecipeOutput, StartAttemptOutput } from '#lib/api/catalogue.js';
-	import { timer, clock } from './timer.svelte';
+	import { timer, clock, keepTimer, keptTimer } from './timer.svelte';
 	import { chime } from './chime';
 	import { wakeLock } from './wake-lock.svelte';
 	import {
@@ -119,7 +119,24 @@
 	const kamosu = useKamosu();
 	const keeping = useKeeping();
 	const bell = chime();
-	const countdown = timer(Date.now, () => bell.ring());
+	const countdown = timer(Date.now, ringOn);
+
+	/**
+	 * A timer that has run out rings again every 20 seconds until it is
+	 * tapped, for two minutes: three tones once were missed by a cook at the
+	 * sink (round 1 of #681's climb). A kitchen timer keeps on until told.
+	 */
+	let ringing: ReturnType<typeof setInterval> | undefined;
+	function ringOn() {
+		bell.ring();
+		clearInterval(ringing);
+		let again = 0;
+		ringing = setInterval(() => {
+			again += 1;
+			if (!countdown.rung || again > 6) clearInterval(ringing);
+			else bell.ring();
+		}, 20_000);
+	}
 	const awake = wakeLock();
 
 	let attempt = $state<StartAttemptOutput | undefined>(undefined);
@@ -225,16 +242,38 @@
 	/** The amounts' and the Step's own columns, which scroll apart on a phone turned sideways. */
 	let amountsEl = $state<HTMLElement | undefined>(undefined);
 	let stepBoxEl = $state<HTMLElement | undefined>(undefined);
+	/** The Step's own field while the cook writes. */
+	let stepFieldEl = $state<HTMLTextAreaElement | undefined>(undefined);
 	let moreBelow = $state(false);
+	/**
+	 * The next Step goes under this one, not beside it, on this Step. Beside it,
+	 * on a tablet on its side, it takes a third of the width, and a long Step
+	 * squeezed into the rest ran past the foot: the soup's second step needed a
+	 * scroll to reach its own timing (round 1 of #681's climb). Under it, the
+	 * Step has the whole width and only the preview runs on below. Set for the
+	 * Step it was measured on, and only ever one way within it, so the layout
+	 * cannot chase itself.
+	 */
+	let nextBelow = $state(false);
+	/** This Step's amounts did not leave it room in one column. */
+	let crowded = $state(false);
 
 	function measureBody() {
 		const element = bodyEl;
 		// A few pixels of slack: sub-pixel line heights make a body that fits
 		// report a pixel of overflow, and a fade over one that fits greys out its
 		// last line for nothing.
-		moreBelow = element
+		const over = element
 			? element.scrollHeight - element.scrollTop - element.clientHeight > 8
 			: false;
+		moreBelow = over;
+		// One change a measure, each kept for the rest of the Step, so the
+		// layout settles in at most two moves and never chases itself.
+		if (over)
+			untrack(() => {
+				if (room.roomy && nextBeside) nextBelow = true;
+				else if (!crowded && !writing && amounts.length >= 3) crowded = true;
+			});
 	}
 
 	/** The More menu and the button that opens it, for closing it on a tap anywhere else. */
@@ -242,6 +281,9 @@
 	let moreButtonEl = $state<HTMLElement | undefined>(undefined);
 
 	function closeMoreOutside(event: PointerEvent) {
+		// Any tap opens the sound, so a timer taken back after a reload can
+		// still ring: iOS lets a page sound only from inside a tap.
+		bell.ready();
 		if (!more || !(event.target instanceof Node)) return;
 		if (moreMenuEl?.contains(event.target) || moreButtonEl?.contains(event.target)) return;
 		more = false;
@@ -260,6 +302,8 @@
 		if (countdown.rung || stopArmed) {
 			stopArmed = false;
 			countdown.clear();
+			clearInterval(ringing);
+			if (attempt) keepTimer(attempt.id, null);
 			return;
 		}
 		stopArmed = true;
@@ -269,7 +313,23 @@
 	function startTimer(seconds: number) {
 		bell.ready();
 		countdown.start(seconds);
+		if (attempt) keepTimer(attempt.id, countdown.endsAt);
 	}
+
+	/**
+	 * The timer this cooking had running when the cook last left the screen,
+	 * taken back once its cooking is known.
+	 */
+	let timerTakenBack = false;
+	$effect(() => {
+		const id = attempt?.id;
+		if (!id || timerTakenBack) return;
+		timerTakenBack = true;
+		untrack(() => {
+			const endsAt = keptTimer(id);
+			if (endsAt !== null && countdown.remaining === null) countdown.resume(endsAt);
+		});
+	});
 
 	/**
 	 * When the cook last moved between steps. A second tap that lands just after
@@ -282,6 +342,17 @@
 	function finishOnPurpose() {
 		if (Date.now() - movedAt < 700) return;
 		void finish();
+	}
+
+	/**
+	 * Back and Next, once a tap. A thumb that bounces lands two taps on the
+	 * same spot: 120, 300 and 600 ms apart each moved the cook two Steps, and
+	 * only the small count said so (round 1 of #681's climb). A cook reading
+	 * their way forward on purpose takes longer than that over a Step.
+	 */
+	function moveOnPurpose(move: () => void) {
+		if (Date.now() - movedAt < 600) return;
+		move();
 	}
 
 	const room = useRoom();
@@ -379,14 +450,25 @@
 		void writing;
 		void amounts.length;
 		void writeFailed;
+		// The next Step moving under this one, which gives the Step its width,
+		// and the amounts going to two columns.
+		void nextBelow;
+		void crowded;
 		// A Demo's strip, which takes the foot of the screen once the shell
 		// has heard it is one (#407).
 		void demo.is;
 		measureBody();
 		// Once more after the frame, by when the strip's room has been taken.
 		const settled = requestAnimationFrame(measureBody);
+		// And once the type has arrived: the first Step of a cooking opened cold
+		// is laid out in a stand-in face, and the real one is taller.
+		let live = true;
+		void document.fonts?.ready.then(() => {
+			if (live) measureBody();
+		});
 		window.addEventListener('resize', measureBody);
 		return () => {
+			live = false;
 			cancelAnimationFrame(settled);
 			window.removeEventListener('resize', measureBody);
 		};
@@ -401,13 +483,15 @@
 		void here?.index;
 		untrack(() => {
 			for (const box of [bodyEl, amountsEl, stepBoxEl]) if (box) box.scrollTop = 0;
+			nextBelow = false;
+			crowded = false;
 			measureBody();
 		});
 	});
 
 	$effect(() => {
 		const element = nextEl;
-		if (!element || !room.roomy) {
+		if (!element || !room.roomy || !nextBeside) {
 			nextLines = 3;
 			return;
 		}
@@ -433,7 +517,9 @@
 
 	onDestroy(() => {
 		countdown.dispose();
+		clearInterval(ringing);
 		clearTimeout(disarm);
+		clearTimeout(keptFor);
 	});
 
 	/**
@@ -535,6 +621,8 @@
 	 * The last Step has none.
 	 */
 	const comingNext = $derived(room.wide && !writing ? stops[position + 1] : undefined);
+	/** It stands beside the Step, where the window is roomy and the Step leaves it room. */
+	const nextBeside = $derived(comingNext !== undefined && !nextBelow);
 
 	/** The Section this step falls under, where the recipe has any. */
 	const section = $derived.by(() => {
@@ -641,16 +729,28 @@
 				{ at, row, written, changed: written !== null && row.text.trim() !== written.trim() },
 			];
 		}),
-	);
+	); /**
+	 * The lines the cook added while cooking, drawn under this Step's own with
+	 * Add a line, where they were added, rather than at the foot of a list
+	 * opened first (round 1 of #681's climb: a grader found Add a line only after
+	 * opening The other ingredients and scrolling past twelve rows).
+	 */
+	const addedLines = $derived(otherLines.filter((line) => line.row.from === null));
+	/** The recipe's own lines this Step does not use, behind The other ingredients. */
+	const restLines = $derived(otherLines.filter((line) => line.row.from !== null));
 
 	const ticked = $derived(new Set(attempt?.ticked_ingredients ?? []));
 
 	/**
 	 * A busy Step's amounts go in two columns, and on a phone at the ingredient
-	 * line's size, so they leave the Step its room (#681). Four is where one
-	 * column began to take more of a phone than the Step it serves.
+	 * line's size, so they leave the Step its room (#681). Only where one
+	 * column does not leave it: chosen by four lines or more, they squeezed the
+	 * bourguignon's four into half columns of small type above a short Step and
+	 * 400px of nothing (round 1 of #681's climb). So the Step is drawn in one
+	 * column first, and goes to two once it is found running past the foot.
+	 * Three lines is the least that two columns can shorten.
 	 */
-	const columns = $derived(amounts.length >= 4);
+	const columns = $derived(crowded && amounts.length >= 3);
 	const figure = $derived(
 		columns
 			? 'text-line sideways:text-panel-figure wide:text-panel-figure wide:leading-figure-far'
@@ -744,10 +844,14 @@
 	}
 
 	/** A line the cook added: theirs, from nowhere in the recipe. */
-	function addLine() {
+	async function addLine() {
 		if (!asCooked) return;
 		asCooked.ingredients.push({ kind: 'ingredient', text: '', from: null, dropped: false });
 		unsaved = true;
+		// The new field takes the caret, so the cook types rather than aims again.
+		await settledDom();
+		const added = document.querySelectorAll<HTMLInputElement>('input[data-added-line]');
+		added[added.length - 1]?.focus();
 	}
 
 	/**
@@ -757,11 +861,17 @@
 	 * up by one, and `current_step_index` therefore names the new step without
 	 * anything being written: the stored number did not move, the list did.
 	 */
-	function insertStep() {
+	async function insertStep() {
 		if (!asCooked || !here) return;
 		asCooked.steps.splice(here.index, 0, { kind: 'step', text: '', from: null, dropped: false });
 		writing = true;
 		unsaved = true;
+		// The new Step's own words are what the cook came to write: the whole
+		// list closes and the field takes the caret, where it opened far below
+		// the list before (round 1 of #681's climb).
+		wholeList = false;
+		await settledDom();
+		stepFieldEl?.focus();
 	}
 
 	/**
@@ -835,6 +945,7 @@
 		try {
 			await kamosu.deleteAttempt({ attempt_id: attempt.id });
 			forgetDraft(attempt.id);
+			keepTimer(attempt.id, null);
 			discarding = false;
 			discarded = true;
 		} catch (error) {
@@ -853,6 +964,10 @@
 	 * taken from the answer: the rest of the Attempt it carries left before the
 	 * step the cook may have moved to since.
 	 */
+	/** A photo was kept a moment ago, and the screen says so for three seconds. */
+	let photoKept = $state(false);
+	let keptFor: ReturnType<typeof setTimeout> | undefined;
+
 	async function takePhoto(event: Event) {
 		const picture = pickedFile(event);
 		if (!attempt || !picture) return;
@@ -862,6 +977,14 @@
 			if (attempt?.id === id) attempt = { ...attempt, photographs: taken.photographs };
 			photoFailed = false;
 			photoInDemo = taken.inADemo;
+			// Said where the cook is looking, for a moment (round 1 of #681's
+			// climb): More closed and the screen looked as before, so a photo
+			// that worked and one that never left the camera looked the same.
+			if (!taken.inADemo) {
+				photoKept = true;
+				clearTimeout(keptFor);
+				keptFor = setTimeout(() => (photoKept = false), 3_000);
+			}
 		} catch (error) {
 			if (!(error instanceof OperationError) && !(error instanceof DOMException)) throw error;
 			photoFailed = true;
@@ -874,6 +997,7 @@
 		await save();
 		try {
 			await kamosu.finishAttempt({ attempt_id: attempt.id });
+			keepTimer(attempt.id, null);
 			finished = true;
 		} catch (error) {
 			if (!(error instanceof OperationError)) throw error;
@@ -1224,6 +1348,33 @@
 						{m.cook_note_a_change()}
 					</button>
 					<!--
+						HOW MUCH, asked again from any Step (round 1 of #681's climb). A
+						cooking as written shows no amount above the Step, so the one way
+						back to the question was Back to before the first Step: six taps
+						from the sixth.
+					-->
+					<button
+						type="button"
+						class="flex min-h-12 items-center gap-3 text-left text-body text-cook-ink"
+						onclick={() => {
+							more = false;
+							atStart = false;
+							asking = true;
+						}}
+					>
+						<svg
+							viewBox="0 0 24 24"
+							aria-hidden="true"
+							class="h-[18px] w-[18px] shrink-0"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="1.8"
+							stroke-linecap="round"
+							stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4" /></svg
+						>
+						{m.cook_change_how_much()}
+					</button>
+					<!--
 						The Wake Lock, and its off switch. The real API and nothing else — a
 						browser without it says the screen may sleep, which is true, rather
 						than a hidden video pretending otherwise.
@@ -1251,6 +1402,16 @@
 						{m.cook_false_start()}
 					</button>
 				</div>
+			{/if}
+			<!-- Over the Step, as More opens, so nothing below it moves for the
+			     three seconds it stands. -->
+			{#if photoKept && !more}
+				<p
+					role="status"
+					class="pointer-events-none absolute top-full right-0 z-10 mt-1 rounded-sm border border-cook-line bg-cook-panel px-3 py-2 text-step-reading text-cook-ink"
+				>
+					{m.cook_photo_kept()}
+				</p>
 			{/if}
 		</header>
 
@@ -1344,7 +1505,14 @@
 							onclick={tapTimer}
 						>
 							{@render clockIcon()}
-							<span aria-hidden="true">
+							<!-- The digits at the amounts' figure size, read across the
+							     kitchen; they were the chip's 15px (round 1 of #681's
+							     climb). Words stay the chip's size, so the chip does not
+							     outgrow its row. -->
+							<span
+								aria-hidden="true"
+								class={countdown.rung || stopArmed ? '' : 'text-panel-figure leading-none'}
+							>
 								{countdown.rung
 									? m.cook_timer_done()
 									: stopArmed
@@ -1375,9 +1543,12 @@
 						(#109).
 					-->
 					{#if choseAmount && !writing}
+						<!-- At the far end, where a thumb aiming at the timer cannot catch it,
+						     and where it stands whether a Step has a timer or not (round 1 of
+						     #681's climb). -->
 						<button
 							type="button"
-							class="quiet-button shrink-0"
+							class="quiet-button ms-auto shrink-0"
 							aria-label={m.cook_how_much_is({ amount: howMuch })}
 							onclick={() => {
 								atStart = false;
@@ -1455,11 +1626,17 @@
 								A change of how much made with no network (#77): the phone holds
 								it and the Core has not scaled it yet, so the amounts below are the
 								ones the phone had, and say nothing beneath them rather than a
-								figure for the wrong amount.
+								figure for the wrong amount. They are drawn soft until the new
+								ones come, so the old figures do not pass for the chosen amount's.
+								With Kamosu in reach the wait is the moment the Core takes to
+								answer, and the line says so rather than blaming the network
+								(round 1 of #681's climb).
 							-->
 							{#if !amountsCaughtUp}
 								<p class="pb-2 text-step-reading text-cook-soft" role="status">
-									{m.cook_scaling_waits({ amount: howMuch })}
+									{reach.server
+										? m.cook_scaling_working({ amount: howMuch })
+										: m.cook_scaling_waits({ amount: howMuch })}
 								</p>
 							{/if}
 							{#if writing}
@@ -1470,9 +1647,19 @@
 									missing it. What writing is for is said once above them (#651).
 								-->
 								<p class="pb-[6px] text-step-reading text-cook-soft">{m.cook_writing()}</p>
-								{#if amounts.length === 0}
-									<p class="text-body text-cook-soft">{m.cook_nothing_new()}</p>
-								{:else}
+								<!--
+									Cooking another amount, the fields hold the recipe's own lines,
+									which is what an As Cooked changes. Said, so the cook knows which
+									amount they are writing over (round 1 of #681's climb).
+								-->
+								{#if scaled}
+									<p class="pb-[6px] text-step-reading text-cook-soft">
+										{said(written)
+											? m.cook_writing_recipe_for({ amount: said(written) ?? '' })
+											: m.cook_writing_recipe_own()}
+									</p>
+								{/if}
+								{#if amounts.length > 0}
 									<ul class="flex flex-col gap-2">
 										{#each amounts as amount (amount.at)}
 											<li class="flex items-center gap-2">
@@ -1513,6 +1700,38 @@
 								{/if}
 
 								<!--
+									A LINE THE COOK ADDS, where they are: under this Step's own lines,
+									from the moment Note a change opens (round 1 of #681's climb).
+								-->
+								{#if addedLines.length > 0}
+									<ul class="mt-2 flex flex-col gap-2">
+										{#each addedLines as line (line.at)}
+											<li class="flex items-center gap-2">
+												<input
+													data-added-line
+													value={line.row.text}
+													disabled={line.row.dropped}
+													placeholder={m.cook_added_line()}
+													oninput={(event) =>
+														write('ingredients', line.at, event.currentTarget.value)}
+													class="min-h-12 min-w-0 flex-1 rounded-sm border border-cook-accent bg-transparent px-2 py-1 font-display text-panel-figure font-semibold text-cook-ink disabled:line-through disabled:opacity-45"
+												/>
+												<button
+													type="button"
+													class="quiet-button shrink-0"
+													onclick={() => drop(line.at)}
+												>
+													{line.row.dropped ? m.cook_keep_line() : m.cook_drop_line()}
+												</button>
+											</li>
+										{/each}
+									</ul>
+								{/if}
+								<button type="button" class="quiet-button mt-3" onclick={addLine}>
+									{m.cook_add_a_line()}
+								</button>
+
+								<!--
 									THE REST OF THE LIST. Across the real corpus a step names an
 									Ingredient Line only 42% of the time — 2 steps of 11 on Dan Dan
 									Noodles — so on most steps the panel above is empty and the salt
@@ -1529,18 +1748,17 @@
 										onclick={() => (wholeList = !wholeList)}
 									>
 										<span>{wholeList ? m.cook_every_line() : m.cook_other_lines()}</span>
-										<span>{wholeList ? '−' : `+${otherLines.length}`}</span>
+										<span>{wholeList ? '−' : `+${restLines.length}`}</span>
 									</button>
 								</div>
 
 								{#if wholeList}
 									<ul class="flex flex-col gap-2">
-										{#each otherLines as line (line.at)}
+										{#each restLines as line (line.at)}
 											<li class="flex items-center gap-2">
 												<input
 													value={line.row.text}
 													disabled={line.row.dropped}
-													placeholder={line.row.from === null ? m.cook_added_line() : undefined}
 													oninput={(event) =>
 														write('ingredients', line.at, event.currentTarget.value)}
 													class="min-h-12 min-w-0 flex-1 rounded-sm border-b border-cook-rule bg-transparent py-2 font-display text-body text-cook-ink disabled:line-through disabled:opacity-45"
@@ -1555,9 +1773,6 @@
 											</li>
 										{/each}
 									</ul>
-									<button type="button" class="quiet-button mt-2" onclick={addLine}>
-										{m.cook_add_a_line()}
-									</button>
 								{/if}
 							{:else if amounts.length > 0}
 								<!--
@@ -1580,17 +1795,31 @@
 									side (#681). Eight amounts one under the other took the phone's
 									whole screen and left the Step three lines: the tomato soup at
 									six servings, the very case #681 was filed for. In two columns
-									they take four rows, each still a whole 48px tap, and on a phone
-									in the ingredient line's own size, which fits two lines of
-									words in that height.
+									they take half the height, each line still a whole 48px tap, and
+									on a phone in the ingredient line's own size, which fits two
+									lines of words in that height.
+
+									The columns run down like a newspaper's rather than in rows, so
+									a long line opposite a short one leaves no hole beside the short
+									one: rows sized to the longer of each pair left the eye a ragged
+									grid and took the height of the longest line twice (round 1 of
+									#681's climb). On a tablet the lines keep the small gap the
+									single column has: lines that touched there gave their 48px taps
+									away to each other by a fraction of a pixel, which measured 45.
+									The phone's lines touch and measure 48, and the phone has no
+									pixels to spare.
 								-->
 								<ul
 									class={columns
-										? 'grid grid-cols-2 gap-x-3 wide:gap-x-8 sideways:flex sideways:flex-col sideways:gap-1'
+										? 'columns-2 gap-x-3 wide:gap-x-8 sideways:columns-1'
 										: 'flex flex-col gap-1 roomy:grid roomy:grid-cols-2 roomy:gap-x-8'}
 								>
 									{#each amounts as amount (amount.at)}
-										<li class="only:col-span-2">
+										<li
+											class={columns
+												? 'break-inside-avoid wide:pb-1 sideways:pb-1'
+												: 'only:col-span-2'}
+										>
 											<button
 												type="button"
 												class="flex min-h-12 w-full items-start gap-3 text-left"
@@ -1634,7 +1863,8 @@
 													{:else}
 														<span
 															class="block font-display font-semibold {figure}
-																{amount.row.dropped ? 'line-through opacity-45' : ''}"
+																{amount.row.dropped ? 'line-through opacity-45' : ''}
+																{amountsCaughtUp ? '' : 'text-cook-soft'}"
 														>
 															{amount.row.text}
 														</span>
@@ -1677,7 +1907,7 @@
 							bind:this={stepBoxEl}
 							class="flex flex-1 flex-col items-start sideways:mt-0 sideways:min-h-0 sideways:overflow-y-auto sideways:border-t-0 sideways:border-l sideways:border-cook-rule sideways:pt-0 sideways:pl-[20px]
 								{amounts.length > 0 || writing ? 'mt-3 border-t border-cook-rule pt-3 wide:mt-4 wide:pt-6' : ''}
-								{comingNext ? 'roomy:flex-row roomy:items-stretch roomy:gap-8' : ''}"
+								{nextBeside ? 'roomy:flex-row roomy:items-stretch roomy:gap-8' : ''}"
 						>
 							{#if writing}
 								<!--
@@ -1687,6 +1917,7 @@
 									much the recipe's own words take beneath it (#681).
 								-->
 								<textarea
+									bind:this={stepFieldEl}
 									value={here.row.text}
 									placeholder={here.row.from === null ? m.cook_added_step() : undefined}
 									oninput={(event) => write('steps', here.index, event.currentTarget.value)}
@@ -1726,7 +1957,11 @@
 									no photograph, and a rewritten one keeps the recipe's.
 								-->
 								<div
-									class="w-full {comingNext ? 'mb-4 roomy:mb-0 roomy:min-w-0 roomy:flex-1' : ''}"
+									class="w-full {nextBeside
+										? 'mb-4 roomy:mb-0 roomy:min-w-0 roomy:flex-1'
+										: comingNext
+											? 'mb-4'
+											: ''}"
 								>
 									<div
 										class="font-display text-step font-semibold
@@ -1742,6 +1977,7 @@
 										<StepWords
 											text={here.row.text}
 											conversions={stepConversions}
+											lead={scaled}
 											readingClass="font-sans text-step-reading font-normal text-cook-soft"
 										/>
 									</div>
@@ -1758,13 +1994,17 @@
 								the Step is short and after it when the Step is long, so it takes
 								only the room the Step leaves (#681), held to three lines. Beside
 								the Step where the window is roomy, where it takes as many whole
-								lines as its column is tall.
+								lines as its column is tall, unless beside it the Step would run
+								past the foot: then under it, as upright.
 							-->
 							{#if comingNext}
 								<aside
 									bind:this={nextEl}
 									aria-labelledby={nextId}
-									class="mt-auto min-h-0 w-full shrink-0 border-t border-cook-rule pt-4 text-cook-soft roomy:mt-0 roomy:w-[30%] roomy:overflow-hidden roomy:border-t-0 roomy:border-l roomy:pt-0 roomy:pl-6"
+									class="mt-auto min-h-0 w-full shrink-0 border-t border-cook-rule pt-4 text-cook-soft
+										{nextBeside
+										? 'roomy:mt-0 roomy:w-[30%] roomy:overflow-hidden roomy:border-t-0 roomy:border-l roomy:pt-0 roomy:pl-6'
+										: ''}"
 								>
 									<h2 id={nextId} class="pb-2 text-label font-semibold uppercase">
 										{m.cook_up_next({ n: position + 2, total: stops.length })}
@@ -1824,14 +2064,14 @@
 				<button
 					type="button"
 					class="second-button flex-1 wide:min-h-[var(--cook-foot-far)] wide:text-foot-far"
-					onclick={back}
+					onclick={() => moveOnPurpose(back)}
 				>
 					{m.cook_back()}
 				</button>
 				<button
 					type="button"
 					class="main-button flex-1 wide:min-h-[var(--cook-foot-far)] wide:text-foot-far"
-					onclick={last ? finishOnPurpose : () => step(position + 1)}
+					onclick={last ? finishOnPurpose : () => moveOnPurpose(() => step(position + 1))}
 				>
 					{last ? m.cook_finish() : m.cook_next()}
 				</button>
