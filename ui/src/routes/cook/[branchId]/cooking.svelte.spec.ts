@@ -10,8 +10,8 @@
  * it, the screen has gone wrong.
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/svelte';
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
+import { cleanup, render, screen, fireEvent, within } from '@testing-library/svelte';
 import { standIn, type Answers, type Refusal } from '#lib/api/stand-in.js';
 import { reached, refreshed } from '#lib/offline/device.svelte.js';
 import { page } from '$app/state';
@@ -21,6 +21,13 @@ import CookingTestHarness from './CookingTestHarness.svelte';
 import { fresh } from './fresh';
 import { keepingForTests } from '../../../testing/render';
 import { putMistakeAway } from '#lib/mistake.svelte.js';
+
+// A running timer is kept on the device under its cooking's id, and every
+// test here cooks `at_1`: one test's timer must not still run in the next.
+afterEach(() => {
+	for (const key of Object.keys(localStorage))
+		if (key.startsWith('kamosu.timer.')) localStorage.removeItem(key);
+});
 
 const INGREDIENTS = [
 	{ kind: 'section' as const, text: 'For the cutlets' },
@@ -178,10 +185,33 @@ const cook = async (over: Answers = {}, { asked = false, room = 'phone' as Room 
 	const start = over.start_attempt ?? attempt();
 	const opensOnTheQuestion =
 		typeof start === 'object' && 'current_step_index' in start && fresh(start);
-	if (opensOnTheQuestion && !asked)
+	if (opensOnTheQuestion && !asked) {
 		await fireEvent.click(await screen.findByRole('button', { name: 'Start cooking' }));
+		// A moment passes before the cook's next tap, as at the stove: Back and
+		// Next take no tap for a bounce's length after a move, Start included.
+		if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(BOUNCE_PAST);
+		else {
+			const real = Date.now.bind(Date);
+			shifted = vi.spyOn(Date, 'now').mockImplementation(() => real() + BOUNCE_PAST);
+		}
+	}
 	return kamosu;
 };
+
+/** Longer than the screen's bounce guard on Back, Next and Finish. */
+const BOUNCE_PAST = 600;
+
+/** A moment passes before the cook's next tap, past the bounce guard again. */
+function later() {
+	const now = Date.now();
+	shifted?.mockRestore();
+	shifted = vi.spyOn(Date, 'now').mockImplementation(() => now + 2 * BOUNCE_PAST);
+}
+let shifted: MockInstance<() => number> | undefined;
+afterEach(() => {
+	shifted?.mockRestore();
+	shifted = undefined;
+});
 
 /**
  * The innermost element whose whole text is exactly this — the step, the
@@ -190,6 +220,10 @@ const cook = async (over: Answers = {}, { asked = false, room = 'phone' as Room 
  */
 const exactly = (text: string) =>
 	screen.findByText((_, node) => node?.textContent?.trim() === text && node.children.length === 0);
+
+/** Open More, where the rarely needed controls live since #681. */
+const openMore = async () =>
+	fireEvent.click(await screen.findByRole('button', { name: /^more$/i }));
 
 describe('the cooking screen', () => {
 	it('opens on the first Step even where the stored index lands on a Section', async () => {
@@ -227,26 +261,22 @@ describe('the cooking screen', () => {
 		// `Best Steak Marinade In Existence` names TEN Ingredient Lines on one
 		// Step, and it is a real recipe in the corpus. Before #88 the amounts
 		// were `shrink-0` against a `flex-1` Step, so on that recipe they pushed
-		// the Step, the timer and both buttons clean off the bottom of the phone:
-		// the cook could neither read the instruction nor reach the next step.
+		// the Step, the timer and both buttons clean off the bottom of the phone.
+		// #88 capped them at 45% and scrolled the Step apart, which hid lines with
+		// no sign of them and cut the Step after four lines (#681). Since #681 the
+		// amounts and the Step are one body that scrolls as one.
 		//
 		// jsdom does no layout, so a height cannot be measured here. What is
-		// asserted is the MECHANISM that fixes it — the amounts yield and scroll
-		// inside a cap instead of taking whatever they want — the same way the
-		// type ranking above is asserted by class rather than by pixel value.
+		// asserted is the MECHANISM: one scrolling box holds both, and both ways
+		// through the recipe stand outside it.
 		await cook();
-		const amounts = (await exactly('2 chicken breasts')).closest('ul')?.parentElement;
-		expect(amounts).toBeTruthy();
-		// It may shrink...
-		expect(amounts).not.toHaveClass('shrink-0');
-		// ...it is bounded...
-		expect(amounts?.className).toMatch(/max-h-\[\d+%\]/);
-		// ...and what does not fit is reachable rather than lost.
-		expect(amounts).toHaveClass('overflow-y-auto');
-		// The Step and both ways through it are on the screen beside them.
-		expect(await exactly('Coat the chicken in panko.')).toBeInTheDocument();
-		expect(screen.getByRole('button', { name: 'Back' })).toBeInTheDocument();
-		expect(screen.getByRole('button', { name: 'Next step' })).toBeInTheDocument();
+		const body = (await exactly('2 chicken breasts')).closest('.overflow-y-auto');
+		expect(body).toBeTruthy();
+		expect(body).toContainElement(await exactly('Coat the chicken in panko.'));
+		expect(body).not.toContainElement(screen.getByRole('button', { name: 'Back' }));
+		expect(body).not.toContainElement(screen.getByRole('button', { name: 'Next step' }));
+		// Nothing caps the amounts any more.
+		expect(body?.innerHTML).not.toMatch(/max-h-\[\d+%\]/);
 	});
 
 	it('shows a quantity Kamosu could not read whole, and never guesses at one', async () => {
@@ -299,13 +329,13 @@ describe('the cooking screen', () => {
 		const addition = (await screen.findAllByText('(about 240 g)'))[0];
 		const step = addition.closest('.text-step') as HTMLElement;
 		expect(step).toHaveClass('text-step');
-		expect(addition).toHaveClass('text-step-reading', 'text-cook-soft');
+		expect(addition).toHaveClass('text-panel-figure-mid', 'text-cook-soft');
 		expect(step.textContent?.replace(/\s+/g, ' ').trim()).toBe(
 			'Coat the chicken in 1 cup (about 240 g) panko, then 1 cup (about 240 g) more, and bake at 350° (about 180 °C).',
 		);
 		// Take the additions away and the Step is exactly as written.
 		const bare = step.cloneNode(true) as HTMLElement;
-		bare.querySelectorAll('.text-step-reading').forEach((span) => span.remove());
+		bare.querySelectorAll('.text-panel-figure-mid').forEach((span) => span.remove());
 		expect(
 			bare.textContent
 				?.replace(/\u00a0/g, '')
@@ -314,7 +344,7 @@ describe('the cooking screen', () => {
 		).toBe(written);
 		// The oven has no line of its own beneath the Step any more.
 		expect(screen.queryByText('about 180 °C')).not.toBeInTheDocument();
-		expect(screen.getByText('(about 180 °C)')).toHaveClass('text-step-reading');
+		expect(screen.getByText('(about 180 °C)')).toHaveClass('text-panel-figure-mid');
 	});
 
 	it('carries the one subordinate line the Core worked out, and invents no arithmetic', async () => {
@@ -324,7 +354,77 @@ describe('the cooking screen', () => {
 		expect(await screen.findByText('about 240 g')).toBeInTheDocument();
 	});
 
-	it('says so in words on a step that adds nothing new', async () => {
+	/** Three lines on the first Step. */
+	const busy = () =>
+		withCooking({
+			steps: [null, { uses: [1, 2, 3], by_hand: false, timer_seconds: null }, null, null],
+		});
+	const busyList = async () =>
+		(await screen.findByRole('button', { name: /chicken/i })).closest('ul');
+
+	it("keeps a busy Step's amounts in one column where they fit (#681)", async () => {
+		// jsdom lays nothing out, so the body fits.
+		await cook({ get_recipe: busy() });
+		expect(await busyList()).not.toHaveClass('columns-2');
+		expect(await exactly('2 chicken breasts')).toHaveClass('text-panel-figure');
+	});
+
+	it('first tries one column at the middle size (round 4 of #681)', async () => {
+		// The body runs past its box only while a figure is at its full size.
+		const body = (element: HTMLElement) => element.classList.contains('overflow-y-auto');
+		Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
+			configurable: true,
+			get(this: HTMLElement) {
+				if (!body(this)) return 0;
+				return this.querySelector('.text-panel-figure') ? 1000 : 400;
+			},
+		});
+		Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
+			configurable: true,
+			get(this: HTMLElement) {
+				return body(this) ? 500 : 0;
+			},
+		});
+		try {
+			await cook({ get_recipe: busy() });
+			await vi.waitFor(async () =>
+				expect(await exactly('2 chicken breasts')).toHaveClass('text-panel-figure-mid'),
+			);
+			expect(await busyList()).not.toHaveClass('columns-2');
+		} finally {
+			Reflect.deleteProperty(HTMLElement.prototype, 'scrollHeight');
+			Reflect.deleteProperty(HTMLElement.prototype, 'clientHeight');
+		}
+	});
+
+	it('puts them in two columns once one runs the Step past the foot (#681)', async () => {
+		// Chosen by count, two columns squeezed four lines into small type above
+		// a short Step (round 1 of #681's climb). Here the body is told it runs
+		// twice past its box.
+		const body = (element: HTMLElement) => element.classList.contains('overflow-y-auto');
+		Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
+			configurable: true,
+			get(this: HTMLElement) {
+				return body(this) ? 1000 : 0;
+			},
+		});
+		Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
+			configurable: true,
+			get(this: HTMLElement) {
+				return body(this) ? 500 : 0;
+			},
+		});
+		try {
+			await cook({ get_recipe: busy() });
+			await vi.waitFor(async () => expect(await busyList()).toHaveClass('columns-2'));
+			expect(await exactly('2 chicken breasts')).toHaveClass('text-line');
+		} finally {
+			Reflect.deleteProperty(HTMLElement.prototype, 'scrollHeight');
+			Reflect.deleteProperty(HTMLElement.prototype, 'clientHeight');
+		}
+	});
+
+	it('shows the Step alone on a step that uses no line (#681)', async () => {
 		// Step index 1 uses the chicken and the panko; index 2 uses the water.
 		// This fixture's `uses: []` case is reached by answering with one.
 		await cook({
@@ -338,7 +438,10 @@ describe('the cooking screen', () => {
 				],
 			}),
 		});
-		expect(await screen.findByText(/nothing new to add/i)).toBeInTheDocument();
+		// The Step alone: no panel, no filler line (#681).
+		expect(await screen.findByText(/^Step \d of \d$/)).toBeInTheDocument();
+		expect(screen.queryByText(/nothing new to add/i)).toBeNull();
+		expect(screen.queryByText('Tick each one as it goes in')).toBeNull();
 	});
 
 	it('offers a timer only where the Step names a duration, and never types one', async () => {
@@ -375,6 +478,171 @@ describe('the cooking screen', () => {
 		}
 	});
 
+	it('takes a running timer back when the cook leaves and comes back', async () => {
+		vi.useFakeTimers();
+		try {
+			await cook({ start_attempt: attempt({ current_step_index: 2 }) });
+			await vi.waitFor(() => screen.getByRole('button', { name: 'Set a timer for 7 min' }));
+			await fireEvent.click(screen.getByRole('button', { name: 'Set a timer for 7 min' }));
+			await vi.advanceTimersByTimeAsync(60_000);
+			// Off to the recipe, or the phone reloads the page: the screen goes.
+			cleanup();
+			await vi.advanceTimersByTimeAsync(60_000);
+			await cook({ start_attempt: attempt({ current_step_index: 2 }) });
+			await vi.waitFor(() =>
+				expect(screen.getByRole('button', { name: /timer: 5:00/i })).toBeInTheDocument(),
+			);
+			// And one that ran out meanwhile says so.
+			cleanup();
+			await vi.advanceTimersByTimeAsync(10 * 60_000);
+			await cook({ start_attempt: attempt({ current_step_index: 2 }) });
+			await vi.waitFor(() =>
+				expect(screen.getByRole('button', { name: /time is up/i })).toBeInTheDocument(),
+			);
+			// Put away, it stays away.
+			await fireEvent.click(screen.getByRole('button', { name: /time is up/i }));
+			cleanup();
+			await cook({ start_attempt: attempt({ current_step_index: 2 }) });
+			await vi.waitFor(() => screen.getByRole('button', { name: 'Set a timer for 7 min' }));
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('stops a running timer on a second tap, never on one stray touch (#681)', async () => {
+		vi.useFakeTimers();
+		try {
+			await cook({ start_attempt: attempt({ current_step_index: 2 }) });
+			await vi.waitFor(() => screen.getByRole('button', { name: 'Set a timer for 7 min' }));
+			await fireEvent.click(screen.getByRole('button', { name: 'Set a timer for 7 min' }));
+			await vi.advanceTimersByTimeAsync(5_000);
+			const running = screen.getByRole('button', { name: /timer: 6:55/i });
+			// One touch says what the next one does, and stops nothing.
+			await fireEvent.click(running);
+			expect(running).toHaveTextContent('Tap again to stop');
+			expect(screen.queryByRole('button', { name: 'Set a timer for 7 min' })).toBeNull();
+			// Left alone, it goes back to counting.
+			await vi.advanceTimersByTimeAsync(3_500);
+			expect(running).not.toHaveTextContent('Tap again to stop');
+			// Two touches stop it, and the Step offers its timer again.
+			await fireEvent.click(running);
+			await fireEvent.click(running);
+			expect(screen.getByRole('button', { name: 'Set a timer for 7 min' })).toBeInTheDocument();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('stops the timer with the cooking it belongs to (review of #681)', async () => {
+		// Left running, it rang on over the screen that says the cooking is
+		// done, seven times over two minutes, with nothing there to stop it.
+		vi.useFakeTimers();
+		const buzz = vi.fn();
+		Object.defineProperty(navigator, 'vibrate', { configurable: true, value: buzz });
+		try {
+			await cook({
+				start_attempt: attempt({ current_step_index: 2 }),
+				advance_attempt: attempt({ current_step_index: 3 }),
+			});
+			await vi.waitFor(() => screen.getByRole('button', { name: 'Set a timer for 7 min' }));
+			await fireEvent.click(screen.getByRole('button', { name: 'Set a timer for 7 min' }));
+			await fireEvent.click(screen.getByRole('button', { name: 'Next step' }));
+			await vi.advanceTimersByTimeAsync(1_500);
+			await fireEvent.click(await screen.findByRole('button', { name: /finish cooking/i }));
+			await vi.waitFor(() =>
+				expect(screen.queryByRole('button', { name: 'Next step' })).toBeNull(),
+			);
+			await vi.advanceTimersByTimeAsync(10 * 60_000);
+			expect(buzz).not.toHaveBeenCalled();
+		} finally {
+			Reflect.deleteProperty(navigator, 'vibrate');
+			vi.useRealTimers();
+		}
+	});
+
+	it('does not finish on the second tap of a double tap on Next (#681)', async () => {
+		vi.useFakeTimers();
+		try {
+			const kamosu = await cook({
+				start_attempt: attempt({ current_step_index: 2 }),
+				advance_attempt: attempt({ current_step_index: 3 }),
+			});
+			await vi.waitFor(() => screen.getByRole('button', { name: 'Next step' }));
+			await fireEvent.click(screen.getByRole('button', { name: 'Next step' }));
+			// The same place now reads Finish cooking; a tap landing at once is the
+			// double tap's second half, not a decision.
+			await fireEvent.click(await screen.findByRole('button', { name: /finish cooking/i }));
+			expect(kamosu.calls.map((call) => call.operation)).not.toContain('finish_attempt');
+			await vi.advanceTimersByTimeAsync(1_000);
+			await fireEvent.click(screen.getByRole('button', { name: /finish cooking/i }));
+			await vi.waitFor(() =>
+				expect(kamosu.calls.map((call) => call.operation)).toContain('finish_attempt'),
+			);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('moves one Step for a bounced double tap on Next, and the next on a later tap', async () => {
+		vi.useFakeTimers();
+		try {
+			// The Core echoes the Step it was sent.
+			await cook({
+				advance_attempt: (input) => attempt({ current_step_index: input.current_step_index ?? 1 }),
+			});
+			await vi.waitFor(() => screen.getByRole('button', { name: 'Next step' }));
+			// The Step on screen, asked now: `exactly` waits on real timers.
+			const on = (text: string) =>
+				screen.queryAllByText(
+					(_, node) => node?.textContent?.trim() === text && node.children.length === 0,
+				).length > 0;
+			await fireEvent.click(screen.getByRole('button', { name: 'Next step' }));
+			await fireEvent.click(screen.getByRole('button', { name: 'Next step' }));
+			await vi.waitFor(() =>
+				expect(on('Pour in the water and simmer for about 7 minutes.')).toBe(true),
+			);
+			await vi.advanceTimersByTimeAsync(1_000);
+			await fireEvent.click(screen.getByRole('button', { name: 'Next step' }));
+			await vi.waitFor(() => expect(on('Season with salt and leave it alone.')).toBe(true));
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('says what the tick box is for on the first step with amounts, and not again (#681)', async () => {
+		await cook({ start_attempt: attempt({ current_step_index: 2 }) });
+		expect(await exactly('800 ml water')).toBeInTheDocument();
+		expect(screen.queryByText('Tick each one as it goes in')).toBeNull();
+	});
+
+	it('opens More over the Step and closes it on a tap anywhere else, which presses nothing', async () => {
+		const kamosu = await cook();
+		await openMore();
+		expect(screen.getByRole('button', { name: 'Throw this cooking away' })).toBeInTheDocument();
+		// A layer over the rest of the screen takes the tap: the line beneath the
+		// thumb is not ticked (round 2 of #681's climb).
+		const layer = document.querySelector('button.fixed.inset-0');
+		expect(layer).not.toBeNull();
+		await fireEvent.click(layer as HTMLElement);
+		expect(screen.queryByRole('button', { name: 'Throw this cooking away' })).toBeNull();
+		expect(kamosu.calls.map((call) => call.operation)).not.toContain('advance_attempt');
+	});
+
+	it('does not skip the first Step on a double tap of Start cooking', async () => {
+		vi.useFakeTimers();
+		try {
+			await cook({}, { asked: true });
+			await vi.waitFor(() => screen.getByRole('button', { name: 'Start cooking' }));
+			await fireEvent.click(screen.getByRole('button', { name: 'Start cooking' }));
+			// Next stands where Start cooking was; the second half of the tap lands on it.
+			await vi.waitFor(() => screen.getByRole('button', { name: 'Next step' }));
+			await fireEvent.click(screen.getByRole('button', { name: 'Next step' }));
+			expect(screen.getByText('Coat the chicken in panko.')).toBeInTheDocument();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it('offers no timer on a Step that names no duration', async () => {
 		await cook();
 		expect(await exactly('Coat the chicken in panko.')).toBeInTheDocument();
@@ -386,6 +654,50 @@ describe('the cooking screen', () => {
 		await fireEvent.click(await screen.findByRole('button', { name: /next step/i }));
 		const advance = kamosu.calls.find((call) => call.operation === 'advance_attempt');
 		expect(advance?.input).toEqual({ attempt_id: 'at_1', current_step_index: 2 });
+	});
+
+	it('offers to try again, and the way back, when the cooking could not start', async () => {
+		let refused = true;
+		const kamosu = await cook({
+			start_attempt: () =>
+				refused
+					? { refuse: 'internal', message: 'The start went wrong.' }
+					: attempt({ current_step_index: 1 }),
+		});
+		expect(await screen.findByText('Could not start cooking this recipe.')).toBeInTheDocument();
+		expect(screen.getByRole('link', { name: 'Back to the recipe' })).toHaveAttribute(
+			'href',
+			'/recipes/b_1',
+		);
+		refused = false;
+		await fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+		expect(await exactly('Coat the chicken in panko.')).toBeInTheDocument();
+		expect(kamosu.calls.filter((call) => call.operation === 'start_attempt')).toHaveLength(2);
+	});
+
+	it('says so when Kamosu refuses a move, rather than going back without a word', async () => {
+		let refused = true;
+		await cook({
+			advance_attempt: (input) =>
+				refused
+					? { refuse: 'internal', message: 'The write went wrong.' }
+					: attempt({ current_step_index: input.current_step_index ?? 1 }),
+		});
+		await fireEvent.click(await screen.findByRole('button', { name: 'Next step' }));
+		// Back on the Step the cook was on, and told why (round 2 of #681's climb).
+		expect(await screen.findByText('Kamosu could not save that. Try again.')).toHaveAttribute(
+			'role',
+			'alert',
+		);
+		expect(await exactly('Coat the chicken in panko.')).toBeInTheDocument();
+		// Tried again, it goes, and the line goes with it.
+		refused = false;
+		await new Promise((resolve) => setTimeout(resolve, 400));
+		await fireEvent.click(screen.getByRole('button', { name: 'Next step' }));
+		expect(await exactly('Pour in the water and simmer for about 7 minutes.')).toBeInTheDocument();
+		await vi.waitFor(() =>
+			expect(screen.queryByText('Kamosu could not save that. Try again.')).toBeNull(),
+		);
 	});
 
 	it('writes a ticked Ingredient through to the server, sent whole rather than patched', async () => {
@@ -427,18 +739,26 @@ describe('the cooking screen', () => {
 
 	it('draws every control on the step as a button that says what it does (#651, C5)', async () => {
 		await cook({ start_attempt: attempt({ current_step_index: 2 }) });
-		for (const name of [
-			'Cooking 4 servings. Change how much',
-			'Set a timer for 7 min',
-			'Note a change',
-		])
-			expect(await screen.findByRole('button', { name })).toHaveClass('quiet-button');
-		expect(screen.getByRole('button', { name: 'Set a timer for 7 min' })).toHaveTextContent(
-			'Timer 7 min',
-		);
-		expect(screen.getByLabelText('Take a photograph of this cooking').closest('label')).toHaveClass(
-			'quiet-button',
-		);
+		const timer = await screen.findByRole('button', { name: 'Set a timer for 7 min' });
+		expect(timer).toHaveClass('quiet-button');
+		expect(timer).toHaveTextContent('Timer 7 min');
+		// The recipe as written is no choice the cook made, so no amount stands
+		// above the Step (#681, U12).
+		expect(screen.queryByRole('button', { name: /change how much/i })).toBeNull();
+		// The rarely needed ones are rows under More, each saying what it does (U2).
+		await openMore();
+		expect(screen.getByRole('button', { name: 'Note a change' })).toBeInTheDocument();
+		expect(
+			screen.getByLabelText('Take a photograph of this cooking').closest('label'),
+		).toHaveTextContent('Take a photo');
+		expect(screen.getByRole('button', { name: 'Throw this cooking away' })).toBeInTheDocument();
+		// How much, asked again from here though nothing above the Step shows it.
+		await fireEvent.click(screen.getByRole('button', { name: 'Change how much' }));
+		expect(
+			await screen.findByRole('heading', { name: 'How much are you making?' }),
+		).toBeInTheDocument();
+		await fireEvent.click(screen.getByRole('button', { name: 'Back to step 2' }));
+		expect(await exactly('Pour in the water and simmer for about 7 minutes.')).toBeInTheDocument();
 		// Next is the step's one main button, Back the second one beside it.
 		expect(screen.getByRole('button', { name: 'Next step' })).toHaveClass('main-button');
 		expect(screen.getByRole('button', { name: 'Back' })).toHaveClass('second-button');
@@ -464,7 +784,7 @@ describe('the cooking screen', () => {
 		// here at the stove where the false start happened.
 		// Under the ⋯ since #222, with the screen's sleep.
 		await fireEvent.click(await screen.findByRole('button', { name: /^more$/i }));
-		await fireEvent.click(await screen.findByRole('button', { name: /not really cooking/i }));
+		await fireEvent.click(await screen.findByRole('button', { name: /throw this cooking away/i }));
 		expect(kamosu.calls.map((call) => call.operation)).not.toContain('delete_attempt');
 
 		// Keeping on is the filled one, and Enter; throwing away is set apart in
@@ -519,6 +839,112 @@ describe('the cooking screen on a tablet on the counter (#197)', () => {
 		expect(await exactly('Pour in the water and simmer for about 7 minutes.')).toBeInTheDocument();
 		expect(comingNext()).toContainElement(await exactly('Season with salt and leave it alone.'));
 		expect(within(comingNext()!).getByText('Next · 3/3')).toBeInTheDocument();
+		// Beside the Step, which fits.
+		expect(comingNext()).toHaveClass('roomy:w-[30%]');
+	});
+
+	it('puts the next Step under a Step that beside it would run past the foot', async () => {
+		// jsdom lays nothing out, so the body is told it is twice as tall as
+		// its box: the soup's long step on a tablet on its side, beside a
+		// preview that took a third of the width (round 1 of #681's climb).
+		const body = (element: HTMLElement) => element.classList.contains('overflow-y-auto');
+		Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
+			configurable: true,
+			get(this: HTMLElement) {
+				return body(this) ? 1000 : 0;
+			},
+		});
+		Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
+			configurable: true,
+			get(this: HTMLElement) {
+				return body(this) ? 500 : 0;
+			},
+		});
+		try {
+			await cook({ start_attempt: attempt({ current_step_index: 2 }) }, { room: 'roomy' });
+			expect(
+				await exactly('Pour in the water and simmer for about 7 minutes.'),
+			).toBeInTheDocument();
+			await vi.waitFor(() => expect(comingNext()).not.toHaveClass('roomy:w-[30%]'));
+			// Still shown, under the Step, as on a tablet upright.
+			expect(within(comingNext()!).getByText('Next · 3/3')).toBeInTheDocument();
+		} finally {
+			Reflect.deleteProperty(HTMLElement.prototype, 'scrollHeight');
+			Reflect.deleteProperty(HTMLElement.prototype, 'clientHeight');
+		}
+	});
+
+	it('sends the next Step away rather than shrink the amounts for it (round 4 of #681)', async () => {
+		// The body runs past its foot, but the Step's own words end above it:
+		// only the next Step's words under them are past, so they go, and the
+		// amounts keep their size. Held to three lines, they ran past the foot
+		// and left their heading over nothing.
+		const body = (element: HTMLElement) => element.classList.contains('overflow-y-auto');
+		Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
+			configurable: true,
+			get(this: HTMLElement) {
+				return body(this) ? 1000 : 0;
+			},
+		});
+		Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
+			configurable: true,
+			get(this: HTMLElement) {
+				return body(this) ? 500 : 0;
+			},
+		});
+		const laidOut = HTMLElement.prototype.getBoundingClientRect;
+		const box = (top: number, bottom: number) =>
+			({ top, bottom, height: bottom - top, left: 0, right: 0, width: 0, x: 0, y: top }) as DOMRect;
+		HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+			if (body(this)) return box(0, 500);
+			if (this.classList.contains('text-step')) return box(100, 400);
+			if (this.closest('aside')) return box(530, 610);
+			return laidOut.call(this);
+		};
+		try {
+			await cook({}, { room: 'wide' });
+			expect(await exactly('Coat the chicken in panko.')).toBeInTheDocument();
+			await vi.waitFor(() => expect(comingNext()).not.toBeInTheDocument());
+			expect(await exactly('2 chicken breasts')).toHaveClass('text-panel-figure');
+		} finally {
+			HTMLElement.prototype.getBoundingClientRect = laidOut;
+			Reflect.deleteProperty(HTMLElement.prototype, 'scrollHeight');
+			Reflect.deleteProperty(HTMLElement.prototype, 'clientHeight');
+		}
+	});
+
+	it("converts the next Step's figures as the Step itself does (round 5 of #681)", async () => {
+		// The preview read the oven as written while the Step it leads to gave
+		// it in the cook's measures.
+		const recipe = answers().get_recipe as GetRecipeOutput;
+		const version = recipe.versions[0];
+		await cook(
+			{
+				get_recipe: {
+					...recipe,
+					versions: [
+						{
+							...version,
+							content: {
+								...version.content,
+								steps: version.content.steps.map((row, at) =>
+									at === 2 ? { ...row, text: 'Bake at 350° until golden.' } : row,
+								),
+							},
+							measured: {
+								...version.measured,
+								steps: [null, null, [{ written: '350°', measured: 'about 180 °C' }], null],
+							},
+						},
+					],
+				},
+			},
+			{ room: 'wide' },
+		);
+		expect(await exactly('Coat the chicken in panko.')).toBeInTheDocument();
+		expect(
+			within(comingNext()!).getByText('Bake at 350° (about 180 °C) until golden.'),
+		).toBeInTheDocument();
 	});
 
 	it('shows none on the last Step', async () => {
@@ -555,6 +981,7 @@ describe('the cooking screen on a tablet on the counter (#197)', () => {
 
 	it('gives the room back while the cook is writing on the Step', async () => {
 		await cook({}, { room: 'wide' });
+		await openMore();
 		await fireEvent.click(await screen.findByRole('button', { name: 'Note a change' }));
 		expect(comingNext()).not.toBeInTheDocument();
 	});
@@ -563,6 +990,7 @@ describe('the cooking screen on a tablet on the counter (#197)', () => {
 describe('writing down what you actually cooked', () => {
 	/** Turn the step in front of the cook into fields. */
 	async function startWriting() {
+		await openMore();
 		await fireEvent.click(await screen.findByRole('button', { name: /note a change/i }));
 	}
 
@@ -572,6 +1000,7 @@ describe('writing down what you actually cooked', () => {
 
 	it('costs a cooking that deviated from nothing one button and no state', async () => {
 		const kamosu = await cook();
+		await openMore();
 		expect(await screen.findByRole('button', { name: /note a change/i })).toBeInTheDocument();
 		// Nothing else: no row, no panel, no badge. And crucially nothing sent —
 		// ordinary cooking is free (ADR 0005).
@@ -663,6 +1092,206 @@ describe('writing down what you actually cooked', () => {
 		expect(lines).not.toContain('800 ml water');
 	});
 
+	it('adds a line from the start of Note a change, where the cook is', async () => {
+		await cook();
+		await startWriting();
+		// No list to open first: a grader found Add a line only past twelve
+		// other rows (round 1 of #681's climb).
+		expect(screen.queryByDisplayValue('a pinch of salt')).not.toBeInTheDocument();
+		await fireEvent.click(await screen.findByRole('button', { name: /add a line/i }));
+		const added = await screen.findByPlaceholderText(/a line you added/i);
+		await vi.waitFor(() => expect(added).toHaveFocus());
+		// Under this Step's own lines, not inside the whole list.
+		expect(screen.getByRole('button', { name: /the other ingredients/i })).toHaveAttribute(
+			'aria-expanded',
+			'false',
+		);
+	});
+
+	it('keeps a line rewritten past recognition on its Step when the cooking is opened again', async () => {
+		// The Core pairs a line rewritten in wholly other words as the recipe's
+		// one dropped and the cook's one added straight after it (ADR 0019).
+		// Opened again, the Step showed the struck panko and nothing in its
+		// place (round 2 of #681's climb).
+		const recipe = answers().get_recipe as GetRecipeOutput;
+		const content = recipe.versions[0].content;
+		type Row = NonNullable<StartAttemptOutput['as_cooked']>['against']['ingredients'][number];
+		const same = (index: number, kind: string, text: string): Row => ({
+			from_branch_point: false,
+			kind,
+			mine: { index, kind, text },
+			place: { mine: index, theirs: index },
+			state: 'same',
+			theirs: { index, kind, text },
+		});
+		const ingredients: Row[] = [
+			same(0, 'section', 'For the cutlets'),
+			same(1, 'ingredient', '2 chicken breasts'),
+			{
+				from_branch_point: false,
+				kind: 'ingredient',
+				mine: { index: 2, kind: 'ingredient', text: '1 cup panko' },
+				place: { mine: 2, theirs: 2 },
+				state: 'only-mine',
+				theirs: null,
+			},
+			{
+				from_branch_point: false,
+				kind: 'ingredient',
+				mine: null,
+				place: { mine: 3, theirs: 2 },
+				state: 'only-theirs',
+				theirs: { index: 2, kind: 'ingredient', text: '1 cup breadcrumbs' },
+			},
+			same(3, 'ingredient', '800 ml water'),
+			same(4, 'ingredient', 'a pinch of salt'),
+		];
+		await cook({
+			start_attempt: attempt({
+				current_step_index: 1,
+				as_cooked: {
+					against: {
+						ingredients,
+						steps: content.steps.map((step, index) => same(index, step.kind, step.text)),
+					},
+					content: {
+						...content,
+						ingredients: [
+							INGREDIENTS[0],
+							INGREDIENTS[1],
+							{ kind: 'ingredient', text: '1 cup breadcrumbs' },
+							INGREDIENTS[3],
+							INGREDIENTS[4],
+						],
+					},
+					promotion_declined: false,
+					version_id: 'v_2',
+					// Not read here: what the cooking screen scales (#713).
+					readings: [],
+					measured: { ingredients: [], scaled_to: null },
+				},
+			}),
+		});
+		expect(await exactly('1 cup breadcrumbs')).toBeInTheDocument();
+		// Drawn with no tick box: a line the cook wrote has nowhere to keep one.
+		expect(screen.queryByRole('button', { name: /breadcrumbs/i })).toBeNull();
+		expect(screen.getByRole('button', { name: /1 cup panko/i })).toBeInTheDocument();
+	});
+
+	it('keeps a rewritten line on its own Step, where the Core puts it ahead of the old one', async () => {
+		// The Core sets a line rewritten past recognition under the last line
+		// above it both versions share, ahead of the one it replaced (ADR 0019,
+		// `page` in src/pairing.rs): the stock comes back between the panko and
+		// the struck water. Taken as the panko's alone, the water's Step showed
+		// the water struck and nothing in its place. A line added after the
+		// panko comes back in the same place, so the stock is the panko's Step's
+		// too: which it was is the Core's to know.
+		const recipe = answers().get_recipe as GetRecipeOutput;
+		const content = recipe.versions[0].content;
+		type Row = NonNullable<StartAttemptOutput['as_cooked']>['against']['ingredients'][number];
+		const same = (mine: number, theirs: number, kind: string, text: string): Row => ({
+			from_branch_point: false,
+			kind,
+			mine: { index: mine, kind, text },
+			place: { mine, theirs },
+			state: 'same',
+			theirs: { index: theirs, kind, text },
+		});
+		await cook({
+			start_attempt: attempt({
+				current_step_index: 2,
+				as_cooked: {
+					against: {
+						ingredients: [
+							same(0, 0, 'section', 'For the cutlets'),
+							same(1, 1, 'ingredient', '2 chicken breasts'),
+							same(2, 2, 'ingredient', '1 cup panko'),
+							{
+								from_branch_point: false,
+								kind: 'ingredient',
+								mine: null,
+								place: { mine: 3, theirs: 3 },
+								state: 'only-theirs',
+								theirs: { index: 3, kind: 'ingredient', text: '1 l chicken stock' },
+							},
+							{
+								from_branch_point: false,
+								kind: 'ingredient',
+								mine: { index: 3, kind: 'ingredient', text: '800 ml water' },
+								place: { mine: 3, theirs: 3 },
+								state: 'only-mine',
+								theirs: null,
+							},
+							same(4, 4, 'ingredient', 'a pinch of salt'),
+						],
+						steps: content.steps.map((step, index) => same(index, index, step.kind, step.text)),
+					},
+					content: {
+						...content,
+						ingredients: [
+							INGREDIENTS[0],
+							INGREDIENTS[1],
+							INGREDIENTS[2],
+							{ kind: 'ingredient', text: '1 l chicken stock' },
+							INGREDIENTS[4],
+						],
+					},
+					promotion_declined: false,
+					version_id: 'v_2',
+					readings: [],
+					measured: { ingredients: [], scaled_to: null },
+				},
+			}),
+		});
+		expect(await exactly('Pour in the water and simmer for about 7 minutes.')).toBeInTheDocument();
+		expect(await exactly('1 l chicken stock')).toBeInTheDocument();
+		expect(screen.getByText('800 ml water')).toHaveClass('line-through');
+	});
+
+	it('gives a line added on a Step that uses none a field at once', async () => {
+		// At the foot of the list it followed the salt, a line another Step
+		// uses, and went into the folded list: no field, no caret.
+		await cook({
+			start_attempt: attempt({ current_step_index: 2 }),
+			get_recipe: withCooking({
+				steps: [
+					null,
+					{ uses: [1, 2], by_hand: false, timer_seconds: null },
+					{ uses: [], by_hand: false, timer_seconds: null },
+					{ uses: [4], by_hand: false, timer_seconds: null },
+				],
+			}),
+		});
+		await startWriting();
+		await fireEvent.click(await screen.findByRole('button', { name: /add a line/i }));
+		const added = await screen.findByPlaceholderText(/a line you added/i);
+		await vi.waitFor(() => expect(added).toHaveFocus());
+	});
+
+	it("puts an added line after the Step's own, and keeps it on the Step after Done", async () => {
+		const kamosu = await cook();
+		await startWriting();
+		await fireEvent.click(await screen.findByRole('button', { name: /add a line/i }));
+		const added = await screen.findByPlaceholderText(/a line you added/i);
+		await fireEvent.input(added, { target: { value: '1 tsp paprika' } });
+		await fireEvent.click(await screen.findByRole('button', { name: /^done$/i }));
+
+		// After the panko, the last line this Step uses, rather than at the foot
+		// of the list: the Core's pairing keeps it there, so it is this Step's
+		// when the cooking is opened again (round 3 of #681's climb).
+		const written = kamosu.calls.find((call) => call.operation === 'set_as_cooked');
+		const cooked = (written?.input as { as_cooked: { ingredients: { text: string }[] } }).as_cooked;
+		expect(cooked.ingredients.map((line) => line.text)).toEqual([
+			'For the cutlets',
+			'2 chicken breasts',
+			'1 cup panko',
+			'1 tsp paprika',
+			'800 ml water',
+			'a pinch of salt',
+		]);
+		expect(await exactly('1 tsp paprika')).toBeInTheDocument();
+	});
+
 	it('inserts a step before this one and leaves the cook standing on it', async () => {
 		const kamosu = await cook();
 		await startWriting();
@@ -671,6 +1300,8 @@ describe('writing down what you actually cooked', () => {
 		// The cook is writing down what they have just done, so the new step is
 		// where they now are — empty, and theirs.
 		const step = await screen.findByPlaceholderText(/a step you added/i);
+		// Its field has the caret, so the cook types rather than looks for it.
+		await vi.waitFor(() => expect(step).toHaveFocus());
 		await fireEvent.input(step, { target: { value: 'Rest the crumb twenty minutes.' } });
 		await fireEvent.click(await screen.findByRole('button', { name: /^done$/i }));
 
@@ -709,10 +1340,11 @@ describe('photographing the cooking (#77)', () => {
 		render(CookingTestHarness, { props: { client: kamosu.client, branchId: 'b_1', keeping } });
 		await fireEvent.click(await screen.findByRole('button', { name: 'Start cooking' }));
 
+		await openMore();
 		const picker = await screen.findByLabelText('Take a photograph of this cooking');
 		expect(picker).toHaveAttribute('accept', 'image/*');
 		expect(picker).toHaveAttribute('capture', 'environment');
-		expect(screen.getByText('Photo')).toBeInTheDocument();
+		expect(screen.getByText('Take a photo')).toBeInTheDocument();
 
 		const picture = new File(['a plate'], 'plate.jpg', { type: 'image/jpeg' });
 		await fireEvent.change(picker, { target: { files: [picture] } });
@@ -727,7 +1359,11 @@ describe('photographing the cooking (#77)', () => {
 			});
 		});
 		expect(keeping.kept).toEqual([picture]);
-		expect(await screen.findByText('Photo · 1')).toBeInTheDocument();
+		// Said on the step itself, where the cook is looking.
+		expect(await screen.findByRole('status')).toHaveTextContent('Photo kept with this cooking.');
+		// Taking one closes More; opened again, it counts what has been taken.
+		await openMore();
+		expect(await screen.findByText('Take a photo · 1 taken')).toBeInTheDocument();
 		// The cook is still on the step they were on.
 		expect(await exactly('Coat the chicken in panko.')).toBeInTheDocument();
 	});
@@ -749,11 +1385,13 @@ describe('photographing the cooking (#77)', () => {
 			props: { client: kamosu.client, branchId: 'b_1', keeping: keepingForTests() },
 		});
 		await fireEvent.click(await screen.findByRole('button', { name: 'Start cooking' }));
+		await openMore();
 		const picker = await screen.findByLabelText('Take a photograph of this cooking');
 		await fireEvent.change(picker, {
 			target: { files: [new File(['a plate'], 'plate.jpg', { type: 'image/jpeg' })] },
 		});
-		expect(await screen.findByText('Photo · 1')).toBeInTheDocument();
+		await openMore();
+		expect(await screen.findByText('Take a photo · 1 taken')).toBeInTheDocument();
 		expect(
 			await screen.findByText(/This is a demo, so photographs aren't kept/),
 		).toBeInTheDocument();
@@ -830,9 +1468,7 @@ describe('photographing the cooking (#77)', () => {
 		);
 		// − and + are behind Another amount, since the four do the same job.
 		expect(screen.queryByRole('button', { name: 'One more' })).toBeNull();
-		expect(
-			screen.getByText('Every amount changes to match, with the recipe’s own beneath it.'),
-		).toBeVisible();
+		expect(screen.getByText('Every amount changes to match.')).toBeVisible();
 
 		await fireEvent.click(screen.getByRole('button', { name: 'Start cooking' }));
 		expect(await exactly('Coat the chicken in panko.')).toBeInTheDocument();
@@ -854,8 +1490,73 @@ describe('photographing the cooking (#77)', () => {
 		expect(
 			await screen.findByRole('heading', { name: 'How much are you making?' }),
 		).toBeInTheDocument();
+		later();
 		await fireEvent.click(screen.getByRole('button', { name: 'Start cooking' }));
 		expect(await exactly('Coat the chicken in panko.')).toBeInTheDocument();
+	});
+
+	it("takes no bounced second tap on Back from the first step as Start cooking's (review of #681)", async () => {
+		// The first tap opens the question, whose full-width button is then
+		// under the thumb: the bounce closed it again.
+		await cook();
+		const back = await screen.findByRole('button', { name: 'Back' });
+		await fireEvent.click(back);
+		await fireEvent.click(await screen.findByRole('button', { name: 'Start cooking' }));
+		expect(screen.getByRole('heading', { name: 'How much are you making?' })).toBeInTheDocument();
+	});
+
+	it("puts tonight's figures in a scaled Step's own words", async () => {
+		// At twice the recipe the Step's own 800 ml was for half the pot: drawn
+		// large beside a small grey (1.6 l), it was the figure a cook measured
+		// (round 1 of #681's climb).
+		const recipe = scaledTo('8', 'servings');
+		const version = recipe.versions[0];
+		const written = 'Pour in 800 ml water and simmer for about 7 minutes.';
+		await cook({
+			start_attempt: attempt({
+				current_step_index: 2,
+				cooking_yield: { amount: '8', noun: 'servings' },
+			}),
+			get_recipe: {
+				...recipe,
+				versions: [
+					{
+						...version,
+						content: {
+							...version.content,
+							steps: version.content.steps.map((row, at) =>
+								at === 2 ? { ...row, text: written } : row,
+							),
+						},
+						measured: {
+							...version.measured,
+							steps: [null, null, [{ written: '800 ml', measured: '1.6 l' }], null],
+						},
+					},
+				],
+			},
+		});
+		const figure = await screen.findByText('1.6 l');
+		expect(figure.closest('.text-step')?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+			'Pour in 1.6 l water and simmer for about 7 minutes.',
+		);
+		expect(screen.queryByText('(1.6 l)')).not.toBeInTheDocument();
+	});
+
+	it("says Note a change holds the recipe's own amounts while cooking another", async () => {
+		await cook({
+			start_attempt: attempt({
+				current_step_index: 1,
+				cooking_yield: { amount: '8', noun: 'servings' },
+			}),
+			get_recipe: scaledTo('8', 'servings'),
+		});
+		await openMore();
+		await fireEvent.click(await screen.findByRole('button', { name: 'Note a change' }));
+		expect(
+			await screen.findByText('These are the recipe’s own amounts, for 4 servings.'),
+		).toBeInTheDocument();
+		expect(await screen.findByDisplayValue('1 cup panko')).toBeInTheDocument();
 	});
 
 	it('stores the Yield on the Attempt, and the scaled amount leads', async () => {
@@ -875,11 +1576,12 @@ describe('photographing the cooking (#77)', () => {
 		);
 		await fireEvent.click(screen.getByRole('button', { name: 'Start cooking' }));
 
-		// The Core's scaled figure at full size, the recipe's own line beneath it
-		// — and the written line itself untouched, because nothing was rewritten.
+		// The Core's scaled line at full size, standing alone: since #680 it says
+		// what it is an amount of, and the recipe's own line no longer doubles
+		// every row beneath it (#681).
 		const scaled = await exactly('about 480 g panko');
 		expect(scaled).toHaveClass('text-panel-figure');
-		expect(screen.getByText('recipe: 1 cup panko')).toBeInTheDocument();
+		expect(screen.queryByText(/^recipe: /)).toBeNull();
 		// A line with an amount Kamosu could not scale keeps its words and says so.
 		expect(await exactly('2 chicken breasts')).toHaveClass('text-panel-figure');
 		expect(screen.getByText('kept as written')).toBeInTheDocument();
@@ -956,6 +1658,7 @@ describe('photographing the cooking (#77)', () => {
 			set_as_cooked: pankoCookedAtEight(measuredFor),
 			...over,
 		});
+		await openMore();
 		await fireEvent.click(await screen.findByRole('button', { name: /note a change/i }));
 		await fireEvent.input(
 			await screen.findByDisplayValue(
@@ -970,14 +1673,14 @@ describe('photographing the cooking (#77)', () => {
 	it('scales a line the cook changed, as the Core measured it (#713)', async () => {
 		await changePankoAtEight({ amount: '8', noun: 'servings' });
 
-		// The cook's own line scaled leads, their words beneath it, and the
-		// recipe's line struck under those, as before.
+		// The cook's own line scaled stands alone, as every scaled line does
+		// (round 2 of #681's climb), and the recipe's line is struck under it
+		// at the same amount, so the two say the same amount of the same thing
+		// (round 5 of #681's climb).
 		expect(await exactly('about 960 g panko')).toHaveClass('text-panel-figure');
-		expect(screen.getByText('2 cups panko')).toHaveClass('text-step-reading');
-		expect(screen.queryByText('recipe: 2 cups panko')).not.toBeInTheDocument();
-		expect(screen.getByText('1 cup panko')).toHaveClass('line-through');
-		// The recipe's own line scaled describes what the recipe asked for.
-		expect(screen.queryByText('about 480 g panko')).not.toBeInTheDocument();
+		expect(screen.queryByText('2 cups panko')).not.toBeInTheDocument();
+		expect(screen.getByText('about 480 g panko')).toHaveClass('line-through');
+		expect(screen.queryByText('1 cup panko')).not.toBeInTheDocument();
 	});
 
 	it('keeps the measured line when a move answers from before the save (#713)', async () => {
@@ -1028,6 +1731,76 @@ describe('photographing the cooking (#77)', () => {
 		// Nor does it claim the line could not be scaled: the Core has not said.
 		const row = line.closest('li') as HTMLElement;
 		expect(within(row).queryByText('kept as written')).not.toBeInTheDocument();
+	});
+
+	it('scales a line the cook added on a Step, as the Core measured it (#713)', async () => {
+		// Cooking eight servings of a recipe for four, the cook added
+		// `1 tsp paprika` after the panko; the Core measured it at eight.
+		const recipe = scaledTo('8', 'servings');
+		const content = recipe.versions[0].content;
+		type Row = NonNullable<StartAttemptOutput['as_cooked']>['against']['ingredients'][number];
+		const same = (mine: number, theirs: number, kind: string, text: string): Row => ({
+			from_branch_point: false,
+			kind,
+			mine: { index: mine, kind, text },
+			place: { mine, theirs },
+			state: 'same',
+			theirs: { index: theirs, kind, text },
+		});
+		await cook({
+			get_recipe: recipe,
+			start_attempt: attempt({
+				current_step_index: 1,
+				cooking_yield: { amount: '8', noun: 'servings' },
+				as_cooked: {
+					against: {
+						ingredients: [
+							same(0, 0, 'section', 'For the cutlets'),
+							same(1, 1, 'ingredient', '2 chicken breasts'),
+							same(2, 2, 'ingredient', '1 cup panko'),
+							{
+								from_branch_point: false,
+								kind: 'ingredient',
+								mine: null,
+								place: { mine: 3, theirs: 3 },
+								state: 'only-theirs',
+								theirs: { index: 3, kind: 'ingredient', text: '1 tsp paprika' },
+							},
+							same(3, 4, 'ingredient', '800 ml water'),
+							same(4, 5, 'ingredient', 'a pinch of salt'),
+						],
+						steps: content.steps.map((step, index) => same(index, index, step.kind, step.text)),
+					},
+					content: {
+						...content,
+						ingredients: [
+							INGREDIENTS[0],
+							INGREDIENTS[1],
+							INGREDIENTS[2],
+							{ kind: 'ingredient', text: '1 tsp paprika' },
+							INGREDIENTS[3],
+							INGREDIENTS[4],
+						],
+					},
+					promotion_declined: false,
+					version_id: 'v_2',
+					readings: [
+						null,
+						{ amount: '2', unit: null, target: 'chicken', lineage_id: null },
+						{ amount: '1', unit: 'cup', target: 'panko', lineage_id: null },
+						{ amount: '1', unit: 'tsp', target: 'paprika', lineage_id: null },
+						{ amount: '800', unit: 'ml', target: 'water', lineage_id: null },
+						null,
+					],
+					measured: {
+						ingredients: [null, null, 'about 480 g panko', '2 tsp paprika', '1.6 l water', null],
+						scaled_to: { amount: '8', noun: 'servings' },
+					},
+				},
+			}),
+		});
+		expect(await exactly('2 tsp paprika')).toBeInTheDocument();
+		expect(screen.queryByText('1 tsp paprika')).not.toBeInTheDocument();
 	});
 
 	it('offers only multipliers where the recipe never said what it makes', async () => {
@@ -1095,14 +1868,35 @@ describe('photographing the cooking (#77)', () => {
 		).toHaveTextContent('Twice the recipe');
 	});
 
+	it('offers under More only what acts on the question of how much (round 5 of #681)', async () => {
+		await cook({}, { asked: true });
+		expect(
+			await screen.findByRole('heading', { name: 'How much are you making?' }),
+		).toBeInTheDocument();
+		await openMore();
+		// Neither does anything while the question is open.
+		expect(screen.queryByRole('button', { name: /note a change/i })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Change how much' })).toBeNull();
+		expect(screen.getByRole('button', { name: 'Throw this cooking away' })).toBeInTheDocument();
+	});
+
 	it('closes More when how much is asked again', async () => {
-		await cook({ start_attempt: attempt({ current_step_index: 2 }) });
-		await fireEvent.click(await screen.findByRole('button', { name: 'More' }));
-		expect(screen.getByRole('button', { name: 'Not really cooking' })).toBeInTheDocument();
-		await fireEvent.click(
-			screen.getByRole('button', { name: 'Cooking 4 servings. Change how much' }),
+		await cook(
+			{
+				start_attempt: attempt({
+					current_step_index: 2,
+					cooking_yield: { amount: '8', noun: 'servings' },
+				}),
+				get_recipe: scaledTo('8', 'servings'),
+			},
+			{ asked: true },
 		);
-		expect(screen.queryByRole('button', { name: 'Not really cooking' })).toBeNull();
+		await openMore();
+		expect(screen.getByRole('button', { name: 'Throw this cooking away' })).toBeInTheDocument();
+		await fireEvent.click(
+			screen.getByRole('button', { name: 'Cooking 8 servings. Change how much' }),
+		);
+		expect(screen.queryByRole('button', { name: 'Throw this cooking away' })).toBeNull();
 	});
 
 	it('counts one serving at a time in the recipe’s own noun', async () => {
@@ -1116,6 +1910,29 @@ describe('photographing the cooking (#77)', () => {
 				cooking_yield: { amount: '5', noun: 'servings' },
 			});
 		});
+	});
+
+	it('keeps − and + under the thumb when they reach one of the four (round 5 of #681)', async () => {
+		// Opened at 7, which is none of the four, so − and + show; one more is
+		// 8, which is Double, and they folded away into Another amount there,
+		// under a thumb about to tap + again.
+		kamosu = await cook({
+			...scalingKamosu(),
+			start_attempt: attempt({ cooking_yield: { amount: '7', noun: 'servings' } }),
+		});
+		await fireEvent.click(
+			await screen.findByRole('button', { name: 'Cooking 7 servings. Change how much' }),
+		);
+		await fireEvent.click(await screen.findByRole('button', { name: 'One more' }));
+		await vi.waitFor(() => {
+			const sent = kamosu?.calls.findLast((call) => call.operation === 'advance_attempt');
+			expect(sent?.input).toMatchObject({ cooking_yield: { amount: '8' } });
+		});
+		await vi.waitFor(() =>
+			expect(screen.getByRole('radio', { name: 'Double 8 servings' })).toBeChecked(),
+		);
+		expect(screen.getByRole('button', { name: 'One more' })).toBeInTheDocument();
+		expect(screen.queryByRole('button', { name: 'Another amount' })).toBeNull();
 	});
 
 	it('says one serving, not one servings (#705)', async () => {
@@ -1173,14 +1990,21 @@ describe('photographing the cooking (#77)', () => {
 			{ advance_attempt: attempt({ cooking_yield: { amount: '8', noun: 'servings' } }) },
 			{ asked: true },
 		);
-		await fireEvent.click(await screen.findByRole('radio', { name: 'Double 8 servings' }));
-		await fireEvent.click(screen.getByRole('button', { name: 'Start cooking' }));
-		expect(
-			await screen.findByText('Amounts scale to 8 servings once Kamosu can be reached.'),
-		).toBeInTheDocument();
-		// The written line stands, and no figure worked out for 4 sits under it.
-		expect(await exactly('1 cup panko')).toBeInTheDocument();
-		expect(screen.queryByText('about 240 g')).not.toBeInTheDocument();
+		await screen.findByRole('radio', { name: 'Double 8 servings' });
+		reached(false);
+		try {
+			await fireEvent.click(screen.getByRole('radio', { name: 'Double 8 servings' }));
+			await fireEvent.click(screen.getByRole('button', { name: 'Start cooking' }));
+			expect(
+				await screen.findByText('Amounts scale to 8 servings once Kamosu can be reached.'),
+			).toBeInTheDocument();
+			// The written line stands, drawn soft, and no figure worked out for 4
+			// sits under it.
+			expect(await exactly('1 cup panko')).toHaveClass('text-cook-soft');
+			expect(screen.queryByText('about 240 g')).not.toBeInTheDocument();
+		} finally {
+			reached(true);
+		}
 	});
 
 	// ---- the amounts catch up with the choice (#674) -------------------------
@@ -1256,11 +2080,52 @@ describe('photographing the cooking (#77)', () => {
 		);
 		await fireEvent.click(await screen.findByRole('radio', { name: 'Double 8 servings' }));
 		await fireEvent.click(screen.getByRole('button', { name: 'Start cooking' }));
-		expect(
-			await screen.findByText('Amounts scale to 8 servings once Kamosu can be reached.'),
-		).toBeInTheDocument();
-		await vi.waitFor(() => expect(shows('about 480 g')).toBe(true), { timeout: 5_000 });
+		// Kamosu is in reach, so the wait is its answer, not the network.
+		expect(await screen.findByText('Working out the amounts for 8 servings…')).toBeInTheDocument();
 		expect(screen.queryByText(/once Kamosu can be reached/)).toBeNull();
+		await vi.waitFor(() => expect(shows('about 480 g')).toBe(true), { timeout: 5_000 });
+		expect(screen.queryByText(/Working out the amounts/)).toBeNull();
+		expect(await exactly('about 480 g')).not.toHaveClass('text-cook-soft');
+	});
+
+	it('gives the lines their room back once the amounts are worked out (round 5 of #681)', async () => {
+		// The body runs past its foot only while the notice stands above the
+		// lines; they gave way for it and stayed small once it went.
+		const body = (element: HTMLElement) => element.classList.contains('overflow-y-auto');
+		Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
+			configurable: true,
+			get(this: HTMLElement) {
+				if (!body(this)) return 0;
+				return this.textContent?.includes('Working out the amounts') ? 1000 : 400;
+			},
+		});
+		Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
+			configurable: true,
+			get(this: HTMLElement) {
+				return body(this) ? 500 : 0;
+			},
+		});
+		try {
+			let early = 0;
+			await cook(
+				holdingKamosu((held) =>
+					held === null || early++ === 0 ? plain() : scaledPanko(held.amount),
+				),
+				{ asked: true },
+			);
+			await fireEvent.click(await screen.findByRole('radio', { name: 'Double 8 servings' }));
+			await fireEvent.click(screen.getByRole('button', { name: 'Start cooking' }));
+			expect(
+				await screen.findByText('Working out the amounts for 8 servings…'),
+			).toBeInTheDocument();
+			await vi.waitFor(() => expect(shows('about 480 g')).toBe(true), { timeout: 5_000 });
+			await vi.waitFor(async () =>
+				expect(await exactly('about 480 g')).toHaveClass('text-panel-figure'),
+			);
+		} finally {
+			Reflect.deleteProperty(HTMLElement.prototype, 'scrollHeight');
+			Reflect.deleteProperty(HTMLElement.prototype, 'clientHeight');
+		}
 	});
 
 	it('shows the later choice where its read overtakes the read of an amount carried in (#674)', async () => {
@@ -1387,13 +2252,14 @@ describe('a Step’s photograph while cooking', () => {
 		};
 	};
 
-	it('sits beside the Step and opens across the screen', async () => {
+	it('stands beside the step count with its word, and opens across the screen', async () => {
 		await cook({ get_recipe: withPhoto() });
-		const open = await screen.findByRole('button', { name: 'Show the photograph of step 1' });
+		const open = await screen.findByRole('button', { name: 'Photo' });
 		expect(open.querySelector('img')).toHaveAttribute('src', '/api/photographs/p_coated/card');
-		// Inside the Step's own box, so the words wrap around it rather than
-		// giving it their room.
-		expect(open.closest('.text-step')).toHaveTextContent('Coat the chicken in panko.');
+		// On the row that says which Step this is, out of the Step's words,
+		// which keep their whole width (round 4 of #681's climb).
+		expect(open.closest('.text-step')).toBeNull();
+		expect(open.parentElement).toHaveTextContent(/Step 1 of \d/);
 
 		await fireEvent.click(open);
 		const large = await screen.findByRole('dialog', { name: 'A photograph of step 1' });
@@ -1408,7 +2274,7 @@ describe('a Step’s photograph while cooking', () => {
 	it('draws nothing on a Step the recipe gives no photograph', async () => {
 		await cook();
 		expect(await exactly('Coat the chicken in panko.')).toBeInTheDocument();
-		expect(screen.queryByRole('button', { name: /Show the photograph of step/ })).toBeNull();
+		expect(screen.queryByRole('button', { name: 'Photo' })).toBeNull();
 	});
 });
 
@@ -1505,7 +2371,7 @@ describe('a mistake in Kamosu, mid-cook (#119)', () => {
 	it('draws the card over a cooking thrown away, beside the way back it has', async () => {
 		const kamosu = await cook();
 		await fireEvent.click(await screen.findByRole('button', { name: /^more$/i }));
-		await fireEvent.click(await screen.findByRole('button', { name: /not really cooking/i }));
+		await fireEvent.click(await screen.findByRole('button', { name: /throw this cooking away/i }));
 		await fireEvent.click(await screen.findByRole('button', { name: /throw it away/i }));
 		await screen.findByRole('status');
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { stepPieces } from './step-conversions';
+import { inPlace, stepPieces, stepText } from './step-conversions';
 
 describe('stepPieces', () => {
 	it('cuts the text straight after each written amount, and changes none of it', () => {
@@ -49,5 +49,35 @@ describe('stepPieces', () => {
 		expect(stepPieces('Preheat to 425°.', odd)).toEqual([
 			{ text: 'Preheat to 425°.', written: null, measured: null },
 		]);
+	});
+});
+
+describe('inPlace', () => {
+	it("leaves out the figure's first word where the Step already says it", () => {
+		expect(inPlace('each weighing about ', 'about 10 oz')).toBe('10 oz');
+		expect(inPlace('chaque pâton pèse environ ', 'environ 280 g')).toBe('280 g');
+	});
+
+	it('keeps the figure whole where the words before it end otherwise', () => {
+		expect(inPlace('Pour in ', '1.6 l')).toBe('1.6 l');
+		expect(inPlace('Melt ', 'about 2 oz')).toBe('about 2 oz');
+		expect(inPlace('', 'about 2 oz')).toBe('about 2 oz');
+	});
+});
+
+describe('stepText', () => {
+	const conversions = [{ written: '280g', measured: 'about 10 oz' }];
+	it('writes the conversion after the figure it converts', () => {
+		expect(stepText('Divide into four, each weighing about 280g.', conversions)).toBe(
+			'Divide into four, each weighing about 280g (about 10 oz).',
+		);
+	});
+	it("puts tonight's figure in the written one's place when it leads", () => {
+		expect(stepText('Divide into four, each weighing about 280g.', conversions, true)).toBe(
+			'Divide into four, each weighing about 10 oz.',
+		);
+	});
+	it('leaves a Step with no conversions as written', () => {
+		expect(stepText('Knead it.', [])).toBe('Knead it.');
 	});
 });

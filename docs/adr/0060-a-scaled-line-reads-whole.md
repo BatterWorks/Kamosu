@@ -2,6 +2,8 @@
 
 _Amends [ADR 0016](./0016-kamosu-converts-to-the-kitchen-not-to-the-arithmetic.md). Built for [#680](https://github.com/BatterWorks/Kamosu/issues/680), 26 November 2026._
 
+_(Amended by [ADR 0061](./0061-the-cooking-screen-shows-tonights-amounts.md), #681: on the cooking screen the scaled line stands alone, without the written line above it, and a Step's figures at another Yield are tonight's, drawn in place of the written ones.)_
+
 The maintainer cooked a tomato soup written for four at six servings. Since [#109](https://github.com/BatterWorks/Kamosu/issues/109) the cooking screen leads with the scaled amount, and the scaled amount was the short line ADR 0016 wrote to sit beside the written one: *about 1½*, with the onion only in the small grey line beneath. The cherry tomatoes, *500-700 g*, were not scaled at all, the olive oil said *kept as written* although it had no amount, and every figure said *about*, 1 × 1.5 included. The maintainer's verdict: "It's unusable as is."
 
 ## What was decided

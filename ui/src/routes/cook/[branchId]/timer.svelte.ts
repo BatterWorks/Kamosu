@@ -13,8 +13,10 @@
  *
  * Nothing here is written to the server: how far through a timer is, is not
  * part of what a cooking is (ADR 0010 holds the Step, the ticks and the Yield,
- * and deliberately nothing else). A timer is lost when the tab is closed, which
- * is the honest consequence of not storing it.
+ * and deliberately nothing else). The screen keeps the moment it ends on the
+ * device itself, so a timer survives the cook looking at the recipe and coming
+ * back, or the phone reloading the page: both lost it without a word until
+ * round 1 of #681's climb. `resume` takes it back.
  */
 
 export interface Timer {
@@ -22,15 +24,28 @@ export interface Timer {
 	readonly remaining: number | null;
 	/** True once it has reached zero and before the cook has put it away. */
 	readonly rung: boolean;
+	/** The moment it ends, in the clock's milliseconds, or null with none set. */
+	readonly endsAt: number | null;
 	/** Start (or restart) a timer of this many seconds. */
 	start(seconds: number): void;
+	/**
+	 * Take back a timer set earlier, by the moment it ends. One that ended
+	 * meanwhile says so and does not ring again: the cook was elsewhere.
+	 */
+	resume(endsAt: number): void;
 	/** Put it away — stop a running one, or acknowledge one that has rung. */
 	clear(): void;
 	/** Stop the interval. The screen calls this as it goes away. */
 	dispose(): void;
 }
 
-export function timer(now: () => number = Date.now): Timer {
+/**
+ * @param now the clock, which a test replaces
+ * @param onRing called once as a timer reaches zero, for the sound and the buzz
+ *   the screen makes then: a cook looking at the pan does not see the chip change
+ *   (#681)
+ */
+export function timer(now: () => number = Date.now, onRing: () => void = () => {}): Timer {
 	let endsAt = $state<number | null>(null);
 	let remaining = $state<number | null>(null);
 	let ticking: ReturnType<typeof setInterval> | undefined;
@@ -39,7 +54,10 @@ export function timer(now: () => number = Date.now): Timer {
 		if (endsAt === null) return;
 		const left = Math.ceil((endsAt - now()) / 1000);
 		remaining = left > 0 ? left : 0;
-		if (remaining === 0) stopTicking();
+		if (remaining === 0) {
+			stopTicking();
+			onRing();
+		}
 	}
 
 	function stopTicking() {
@@ -54,11 +72,21 @@ export function timer(now: () => number = Date.now): Timer {
 		get rung() {
 			return remaining === 0;
 		},
+		get endsAt() {
+			return endsAt;
+		},
 		start(seconds: number) {
 			stopTicking();
 			endsAt = now() + seconds * 1000;
 			remaining = seconds;
 			ticking = setInterval(tick, 250);
+		},
+		resume(at: number) {
+			stopTicking();
+			endsAt = at;
+			const left = Math.ceil((at - now()) / 1000);
+			remaining = left > 0 ? left : 0;
+			if (remaining > 0) ticking = setInterval(tick, 250);
 		},
 		clear() {
 			stopTicking();
@@ -69,6 +97,31 @@ export function timer(now: () => number = Date.now): Timer {
 			stopTicking();
 		},
 	};
+}
+
+/**
+ * Where a cooking's timer is kept on the device: the moment it ends, under the
+ * cooking's id, as the cook's own words are kept beside it (`as-cooked`). A
+ * browser that keeps nothing keeps no timer, as before.
+ */
+const timerKey = (attemptId: string) => `kamosu.timer.${attemptId}`;
+
+export function keepTimer(attemptId: string, endsAt: number | null): void {
+	try {
+		if (endsAt === null) localStorage.removeItem(timerKey(attemptId));
+		else localStorage.setItem(timerKey(attemptId), String(endsAt));
+	} catch {
+		// Nothing kept: the timer lasts as long as the page, as it did.
+	}
+}
+
+export function keptTimer(attemptId: string): number | null {
+	try {
+		const at = Number(localStorage.getItem(timerKey(attemptId)));
+		return Number.isFinite(at) && at > 0 ? at : null;
+	} catch {
+		return null;
+	}
 }
 
 /**

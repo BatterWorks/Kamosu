@@ -178,6 +178,7 @@
   --text-tile-title: calc(15 * var(--type-unit));      /* tile titles beneath covers */
   --text-tile-title--line-height: 1.22;
   --text-panel-figure: calc(21 * var(--type-unit));    /* numerals in the cooking amounts panel */
+  --text-panel-figure-mid: calc(19 * var(--type-unit)); /* the same on a busy Step, before two columns (round 4 of #681's climb) */
   --text-body: calc(16 * var(--type-unit));            /* interface body text */
   --text-body--line-height: 1.55;
   --text-read: calc(12.5 * var(--type-unit));          /* a reading, subordinate under its line */
@@ -242,11 +243,6 @@
      #77 (option A, the diary's Photographs row): big enough to tell one plate
      from another, small enough that a row of them is a glance. */
   --photo-thumb: 72px;
-  /* A Step's photograph at the stove, square, at the top right of the Step's
-     words, which wrap around it. 96px is the size seen and chosen on
-     #110 (K3): larger than --photo-thumb because it sits in the largest type
-     in the app. The recipe page's Step photograph is --photo-thumb (R2). */
-  --step-photo: 96px;
   /* The picture at the start of a list row, square: the size drawn on the
      row chosen on #632 (`rows-E.html`). Smaller than --photo-thumb, because
      a row is one of many and its words, not its picture, are read. */
@@ -271,6 +267,7 @@
   --text-step-far--line-height: 1.22;
   --text-step-reading-far: calc(22 * var(--type-unit));
   --text-panel-figure-far: calc(27 * var(--type-unit));
+  --text-panel-figure-mid-far: calc(24 * var(--type-unit));
   /* An amount that wraps keeps its two lines together. The phone's inherits
      the body's, which at 27px left a gap as tall as the one between amounts. */
   --leading-figure-far: 1.25;
@@ -782,6 +779,7 @@
     --text-step--line-height: var(--text-step-far--line-height);
     --text-step-reading: var(--text-step-reading-far);
     --text-panel-figure: var(--text-panel-figure-far);
+    --text-panel-figure-mid: var(--text-panel-figure-mid-far);
     --text-body: var(--text-body-far);
     --text-line: var(--text-line-far);
     --text-read: var(--text-read-far);
