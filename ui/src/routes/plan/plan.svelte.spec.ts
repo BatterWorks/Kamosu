@@ -150,7 +150,8 @@ describe('the Plan', () => {
 		await screen.findByRole('link', { name: /Katsu Curry/ });
 
 		await fireEvent.click(screen.getByRole('button', { name: 'Change' }));
-		const sheet = await screen.findByRole('dialog');
+		const sheet = await screen.findByRole('dialog', { name: 'Katsu Curry' });
+		expect(within(sheet).getByText(`On ${aPlannedDay(addDays(monday, 3))}`)).toBeInTheDocument();
 		// The four choices, as how much is asked everywhere (#651); six servings
 		// is none of them, so − and + stand open under them.
 		const choices = within(sheet).getAllByRole('radio');
@@ -319,7 +320,9 @@ describe('the Plan, a week with no day and written words (#487)', () => {
 		// The shared quiet button, tapped at 48 where it stood 40 × 33 (#654).
 		for (const each of plus) expect(each).toHaveClass('quiet-button');
 		await fireEvent.click(plus[5]);
-		const sheet = await screen.findByRole('dialog');
+		const sheet = await screen.findByRole('dialog', {
+			name: `Add to ${aPlannedDay(addDays(monday, 4))}`,
+		});
 		const put = within(sheet).getByRole('button', { name: /^Put it on / });
 		expect(put).toBeDisabled();
 		expect(within(sheet).getByRole('link', { name: 'Choose a recipe to plan' })).toHaveAttribute(
@@ -337,7 +340,7 @@ describe('the Plan, a week with no day and written words (#487)', () => {
 		expect(screen.queryByRole('dialog')).toBeNull();
 
 		await fireEvent.click(screen.getByRole('button', { name: 'Add to any day this week' }));
-		const again = await screen.findByRole('dialog');
+		const again = await screen.findByRole('dialog', { name: 'Add to any day this week' });
 		await fireEvent.input(within(again).getByLabelText('Write something'), {
 			target: { value: 'Soup' },
 		});
@@ -361,7 +364,7 @@ describe('the Plan, a week with no day and written words (#487)', () => {
 		await fireEvent.click(
 			within(await screen.findByRole('dialog')).getByRole('button', { name: 'Move' }),
 		);
-		const sheet = await screen.findByRole('dialog');
+		const sheet = await screen.findByRole('dialog', { name: 'Move Katsu Curry' });
 		expect(within(sheet).getByText(/^Now on /)).toBeInTheDocument();
 		await fireEvent.click(within(sheet).getByRole('radio', { name: /^Any day next week/ }));
 		await fireEvent.click(within(sheet).getByRole('button', { name: 'Move it to next week' }));
@@ -387,7 +390,7 @@ describe('the Plan, a week with no day and written words (#487)', () => {
 		await fireEvent.click(
 			within(await screen.findByRole('dialog')).getByRole('button', { name: 'Plan again' }),
 		);
-		const sheet = await screen.findByRole('dialog');
+		const sheet = await screen.findByRole('dialog', { name: 'Plan Katsu Curry again' });
 		expect(
 			within(sheet).getByText(/^Stays on .* too, and keeps 6 servings\.$/),
 		).toBeInTheDocument();
@@ -422,7 +425,7 @@ describe('the Plan, a week with no day and written words (#487)', () => {
 		await fireEvent.click(
 			within(await screen.findByRole('dialog')).getByRole('button', { name: 'Plan again' }),
 		);
-		const sheet = await screen.findByRole('dialog');
+		const sheet = await screen.findByRole('dialog', { name: 'Plan Leftovers again' });
 		await fireEvent.click(within(sheet).getByRole('radio', { name: /^Any day next week/ }));
 		await fireEvent.click(
 			within(sheet).getByRole('button', { name: 'Plan it again for next week' }),
@@ -455,6 +458,46 @@ describe('the Plan, a week with no day and written words (#487)', () => {
 		});
 	});
 
+	it('titles every sheet in one line, with no faint capitals above it (#717)', async () => {
+		renderScreen(Page, { get_meal_plan: weekOf([meal()]) });
+		await screen.findByRole('link', { name: /Katsu Curry/ });
+		// No faint capitals anywhere, and the line that names the sheet at the title's size.
+		const faint = (sheet: HTMLElement) => {
+			const title = document.getElementById(sheet.getAttribute('aria-labelledby') ?? '');
+			expect(title).toHaveClass('font-display', 'text-title');
+			return sheet.querySelector('.text-support-2.uppercase');
+		};
+		const press = async (sheet: HTMLElement, name: string) => {
+			await fireEvent.click(within(sheet).getByRole('button', { name }));
+		};
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Change' }));
+		const change = await screen.findByRole('dialog', { name: 'Katsu Curry' });
+		expect(faint(change)).toBeNull();
+		await press(change, 'Move');
+		const move = await screen.findByRole('dialog', { name: 'Move Katsu Curry' });
+		expect(faint(move)).toBeNull();
+		// Cancelling the move goes back to the meal's own sheet.
+		await press(move, 'Cancel');
+		await press(await screen.findByRole('dialog', { name: 'Katsu Curry' }), 'Plan again');
+		const again = await screen.findByRole('dialog', { name: 'Plan Katsu Curry again' });
+		expect(faint(again)).toBeNull();
+		await press(again, 'Cancel');
+		await press(await screen.findByRole('dialog', { name: 'Katsu Curry' }), 'Done');
+		expect(screen.queryByRole('dialog')).toBeNull();
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Add to any day this week' }));
+		const write = await screen.findByRole('dialog', { name: 'Add to any day this week' });
+		expect(faint(write)).toBeNull();
+		await press(write, 'Cancel');
+		expect(screen.queryByRole('dialog')).toBeNull();
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Send to shopping' }));
+		expect(
+			faint(await screen.findByRole('dialog', { name: 'What are you shopping for?' })),
+		).toBeNull();
+	});
+
 	it('offers no Earlier and Later for the only meal on its day', async () => {
 		renderScreen(Page, { get_meal_plan: weekOf([meal()]) });
 		await screen.findByRole('link', { name: /Katsu Curry/ });
@@ -469,10 +512,10 @@ describe('the Plan, a week with no day and written words (#487)', () => {
 		});
 		await screen.findByText('Shakshuka');
 		await fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
-		const sheet = await screen.findByRole('dialog');
+		const sheet = await screen.findByRole('dialog', { name: 'Shakshuka' });
 		expect(within(sheet).getByRole('button', { name: 'Move' })).toBeInTheDocument();
 		expect(within(sheet).queryByRole('button', { name: 'Plan again' })).toBeNull();
-		expect(within(sheet).getByText(/^Any day · This week$/)).toBeInTheDocument();
+		expect(within(sheet).getByText(/^Any day this week$/)).toBeInTheDocument();
 	});
 
 	it('draws the week with no day as a band on the wide layout, and a meal dragged onto a day moves there', async () => {
@@ -670,8 +713,7 @@ describe('sending the plan to the Shopping List (#488)', () => {
 		await screen.findByRole('link', { name: /Katsu Curry/ });
 
 		await fireEvent.click(screen.getByRole('button', { name: 'Send to shopping' }));
-		const sheet = await screen.findByRole('dialog');
-		expect(await within(sheet).findByText(/What are you shopping for/)).toBeInTheDocument();
+		const sheet = await screen.findByRole('dialog', { name: 'What are you shopping for?' });
 		const go = within(sheet).getByRole('button', { name: 'Choose what to send' });
 		expect(go).toBeDisabled();
 		// What each day would send: a recipe at its amount, one sent, and words that stay.

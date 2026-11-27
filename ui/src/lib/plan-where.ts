@@ -38,12 +38,22 @@ export const whereSaid = (where: Where): string =>
 		? m.plan_on_day({ day: aPlannedDay(where.day) })
 		: m.plan_any_day_of({ week: weekInline(where.week) });
 
-/** Where a meal stands, bare, as a sheet heads it and a button is aimed: `Thursday 5 November`, `any day next week`. */
+/** Where a meal stands, bare, as a button is aimed and a note says where it went: `Thursday 5 November`, `any day next week`. */
 export const whereName = (where: Where): string =>
 	'day' in where ? aPlannedDay(where.day) : m.plan_any_day_of({ week: weekInline(where.week) });
 
-/** Where a meal stands, as a sheet heads it: `Thursday 5 November`, `Any day the week of 9 November`. */
-export const whereHeading = (where: Where): string => capitalised(whereName(where));
+/**
+ * What the + on a day or a week does, and the title of the sheet it opens:
+ * `Add to Thursday 5 November`, `Add to any day next week` (#717). Two phrases,
+ * so a Language can put an article before a day: `Ajouter au samedi`.
+ */
+export const addTo = (where: Where): string =>
+	'day' in where
+		? m.plan_add_to_day({ day: aPlannedDay(where.day) })
+		: m.plan_add_to_any({ week: weekInline(where.week) });
+
+/** Where a meal stands, as a line under its sheet's title: `On Thursday 5 November`, `Any day next week` (#717). */
+export const whereStands = (where: Where): string => capitalised(whereSaid(where));
 
 /** What a meal is called on the plan: its recipe's title, or its words. */
 export const mealName = (meal: { words: string | null; title: string | null }): string =>
@@ -51,6 +61,3 @@ export const mealName = (meal: { words: string | null; title: string | null }): 
 
 const capitalised = (text: string): string =>
 	text.replace(/^\p{L}/u, (first) => first.toUpperCase());
-
-/** A week as a label starts it: `This week`, `The week of 9 November`. */
-export const weekLabel = (monday: Day): string => capitalised(weekInline(monday));

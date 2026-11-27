@@ -56,7 +56,7 @@
 		type Day,
 		type Where,
 	} from '#lib/plan-days.js';
-	import { anyDayName, mealName, weekInline, whereName, whereSaid } from '#lib/plan-where.js';
+	import { addTo, anyDayName, mealName, weekInline, whereSaid } from '#lib/plan-where.js';
 	import { TICK, amountOf, countOf, sentOf } from '#lib/plan-sent.js';
 	import { COOKED_BOWL } from '#lib/shell/places.js';
 	import { yieldScale } from '#lib/offline/shopping.js';
@@ -740,7 +740,7 @@
 		class={wide
 			? 'quiet-button mt-2 w-full text-accent'
 			: 'quiet-button mt-2 w-[40px] px-0! text-line! text-accent'}
-		aria-label={m.plan_add_to({ where: whereName(where) })}
+		aria-label={addTo(where)}
 		onclick={() => (writing = where)}
 	>
 		<span aria-hidden="true">+{wide ? ` ${m.plan_add()}` : ''}</span>

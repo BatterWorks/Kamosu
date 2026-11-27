@@ -16,6 +16,11 @@
 
 	Under "how much", what it sent to the Shopping List and when, and what the
 	next send would do now (#488).
+
+	Its title is the meal's name in full ink, with where it stands under it,
+	"On Saturday 28 November", where a faint line of capitals naming the day
+	stood above a smaller name (option A of #717's prototype, 27 November
+	2026).
 -->
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
@@ -27,8 +32,8 @@
 	import type { GetMealPlanOutput } from '#lib/api/catalogue.js';
 	import { aPlannedDay } from '#lib/dates.js';
 	import { said, type Wanted } from '#lib/how-much.js';
-	import { mealName, weekLabel } from '#lib/plan-where.js';
-	import { today } from '#lib/plan-days.js';
+	import { mealName, whereStands } from '#lib/plan-where.js';
+	import { today, whereOf } from '#lib/plan-days.js';
 	import { TICK, amountOf, sentOf } from '#lib/plan-sent.js';
 
 	type Meal = GetMealPlanOutput['planned_meals'][number];
@@ -117,17 +122,15 @@
 
 	const amount = $derived(said(meal.planned_yield ?? meal.written_yield));
 	const sent = $derived(sentOf(meal));
-	const heading = $derived(
-		meal.day ? aPlannedDay(meal.day) : m.plan_any_day_label({ week: weekLabel(meal.week) }),
-	);
+	const stands = $derived(whereStands(whereOf(meal)));
 </script>
 
 <SheetFrame labelledby="{uid}-title" tall={85} class="flex flex-col bg-ground" onclose={onClose}>
 	<div class="min-h-0 flex-1 overflow-y-auto px-gutter pt-4 pb-4">
-		<p class="text-label text-support-2 uppercase">{heading}</p>
-		<h3 id="{uid}-title" class="mt-1 font-display text-line font-semibold">
+		<h3 id="{uid}-title" class="font-display text-title font-semibold">
 			{mealName(meal)}
 		</h3>
+		<p class="mt-1 text-read text-ink-2">{stands}</p>
 		{#if meal.words !== null}
 			<label class="mt-4 block text-label text-ink-2 uppercase" for="{uid}-words"
 				>{m.plan_words_label()}</label
