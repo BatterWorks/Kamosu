@@ -11,7 +11,7 @@
 	  · above it, ONLY the Ingredients this step uses. Not the list, not a
 	    filter over the list — the two or three lines that matter now, on the
 	    room's own ground with a hairline under them. A step that adds nothing
-	    says so in words rather than showing an empty box;
+	    shows the Step alone (ADR 0061);
 	  · the ground turns indigo. Standing at the stove is another room, and it
 	    is the one place in Kamosu where that is true;
 	  · THERE IS NO TAB BAR HERE. The layout hides it on this route, so no tap
@@ -50,12 +50,12 @@
 	HOW MUCH IS BEING COOKED IS ASKED BEFORE A FRESH COOKING STARTS (#109, option
 	B, the choice of 23 September 2026). The question stands where the
 	amounts and the Step will, and the foot's one button starts the cooking —
-	there is no second button for it, and it is no step (#651). Afterwards the Yield on the row
-	above the hairline brings the question back, and the foot then reads *Back
-	to step N*. Once the amounts are scaled THE SCALED AMOUNT LEADS: the Core's
-	subordinate line at full size, the recipe's own line small beneath it. At
-	the stove the number to measure is the one that matters, and the written
-	line is still there to say what the recipe asked for. A line that could not be
+	there is no second button for it, and it is no step (#651). Afterwards the amount beside
+	More brings the question back, and the foot then reads *Back
+	to step N*. Once the amounts are scaled THE SCALED LINE STANDS ALONE (ADR
+	0061): the Core's line at the new amount, at full size, and the recipe's
+	own one tap away in Note a change. At the stove the number to measure is
+	the one that matters, and the Step's own figures are tonight's too. A line that could not be
 	scaled keeps its own words and says it was not scaled — once a cook has
 	asked for twice the recipe, a line left alone is exactly what they need
 	telling. A line with no amount (olive oil, salt to taste) had nothing to

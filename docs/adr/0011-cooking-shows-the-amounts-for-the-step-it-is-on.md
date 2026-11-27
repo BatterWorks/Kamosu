@@ -10,6 +10,8 @@ _(Amended by [ADR 0054](./0054-a-step-s-lines-may-be-corrected-by-hand.md), 2026
 
 _(Amended by [ADR 0058](./0058-a-meal-plan-is-a-persons-own-days-ahead.md), 2026-10-31: the tab bar is Home · Recipes · Plan · Shopping · Cooked. Settings is still not a tab.)_
 
+_(Amended by [ADR 0061](./0061-the-cooking-screen-shows-tonights-amounts.md), 2026-11-26: a Step that uses no line shows the Step alone, with no *nothing new to add*. At another Yield the cooking screen shows the scaled line alone in place of the Ingredient Line with its Reading beneath; at the Yield as written that rule holds.)_
+
 ## Why
 
 - **The thing that interrupts cooking is a number.** A step says "break the curry roux cake into small blocks" and never says 230g, because the amount lives in the ingredient list and the sentence assumes you remember it. In the first Operator's own 86-recipe export this is not an edge case: 28% of Ingredient Lines carry no quantity at all, and effectively none of the 599 Steps repeat one. A cooking screen showing only the instruction therefore sends the cook back to the list on most steps.

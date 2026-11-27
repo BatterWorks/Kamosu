@@ -13,7 +13,7 @@
 
 	A COOKING AT ANOTHER AMOUNT puts tonight's figure in the words, in their
 	place and at their size, and the recipe's figure is not drawn (round 1 of
-	#681's climb). Drawn as an addition, the recipe's figures stood at the
+	#681's climb, ADR 0061). Drawn as an addition, the recipe's figures stood at the
 	Step's size and tonight's small and grey beside them: "Melt 30 g butter
 	(about 2 oz)" at twice the recipe, where the 30 g was for half the pot. The
 	scaled Ingredient Lines say only tonight's amount too, since #681; the
