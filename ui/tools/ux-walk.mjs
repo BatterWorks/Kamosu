@@ -92,7 +92,7 @@ const CONTROLS = /** @type {const} */ ([
  * @property {string} [tap] the control's words, or its label for a screen reader
  * @property {string} [type] the words typed
  * @property {string} [into] the field typed into, by its label
- * @property {boolean} [partial] the words are part of the control's name, as a date's day is
+ * @property {boolean} [partial] the words are part of the control's name, as a day is of its date
  * @property {boolean} [opens] the tap opens a menu, so the next step's control is behind one
  */
 
