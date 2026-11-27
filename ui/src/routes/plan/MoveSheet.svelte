@@ -7,6 +7,10 @@
 	what amount; then the list; then "Move it to <day>" or "Plan it again for
 	<day>", which waits until something is chosen. Planning again keeps the
 	original where it is, and the copy keeps its amount.
+
+	Its title says what it does to which meal, "Move Margherita pizza", in
+	full ink, where a faint "MOVE" stood above the name (option A of #717's
+	prototype, 27 November 2026).
 -->
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
@@ -55,9 +59,10 @@
 
 <SheetFrame labelledby="{uid}-title" tall={88} class="flex flex-col bg-ground" onclose={onClose}>
 	<div class="min-h-0 flex-1 overflow-y-auto px-gutter pt-4 pb-4">
-		<p class="text-label text-support-2 uppercase">{again ? m.plan_again() : m.plan_move()}</p>
-		<h3 id="{uid}-title" class="mt-1 font-display text-line font-semibold">
-			{mealName(meal)}
+		<h3 id="{uid}-title" class="font-display text-title font-semibold">
+			{again
+				? m.plan_again_title({ title: mealName(meal) })
+				: m.plan_move_title({ title: mealName(meal) })}
 		</h3>
 		<p class="mt-2 text-read text-ink-2">
 			{#if !again}

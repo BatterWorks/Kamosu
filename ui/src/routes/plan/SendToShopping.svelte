@@ -10,6 +10,9 @@
 	nothing more to send, and written words and a recipe that can no longer be
 	read saying they stay. Days already gone are faded and can still be ticked.
 	The button counts the recipes that would go.
+
+	Its question is its title, in full ink, with no faint "SEND TO SHOPPING"
+	above it (option A of #717's prototype, 27 November 2026).
 -->
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
@@ -193,8 +196,7 @@
 
 <SheetFrame labelledby="{uid}-title" tall={88} class="flex flex-col bg-ground" onclose={onClose}>
 	<div class="min-h-0 flex-1 overflow-y-auto px-gutter pt-4 pb-4">
-		<p class="text-label text-support-2 uppercase">{m.plan_send()}</p>
-		<h3 id="{uid}-title" class="mt-1 font-display text-line font-semibold">
+		<h3 id="{uid}-title" class="font-display text-title font-semibold">
 			{m.plan_send_title()}
 		</h3>
 		<p class="mt-2 text-read text-ink-2">{m.plan_send_blurb()}</p>
