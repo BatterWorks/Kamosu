@@ -2530,6 +2530,123 @@ describe('the recipe screen', () => {
 		);
 	});
 
+	/** A Planned Meal on a day, as `get_meal_plan` answers it. */
+	const plannedOn = (day: string, branch_id: string, title: string, id: string) => ({
+		planned_meal_id: id,
+		week: mondayOf(day),
+		day,
+		position: 0,
+		branch_id,
+		words: null,
+		title,
+		gone: false,
+		planned_yield: null,
+		written_yield: { amount: '4', noun: 'servings' },
+		main_photo: null,
+		sent_factor: null,
+		sent_at: null,
+		cooked: false,
+	});
+
+	it('shows the recipe joining what a day holds, and only the chosen day as chosen (#654)', async () => {
+		const tomorrow = addDays(today(), 1);
+		const later = addDays(today(), 3);
+		scalable({
+			get_meal_plan: {
+				planned_meals: [
+					plannedOn(tomorrow, 'b_katsu', 'Katsu Curry', 'pm_0000000000000001'),
+					plannedOn(later, 'mine', 'Korean Fried Chicken', 'pm_0000000000000002'),
+				],
+			},
+		});
+		await screen.findByText('Amounts for 4 servings');
+		await fireEvent.click(screen.getByRole('button', { name: 'Plan' }));
+		const sheet = await screen.findByRole('dialog', { name: 'Plan Korean Fried Chicken' });
+
+		// Nothing looks chosen before something is: "any day" is a row like the others.
+		const anyDay = within(sheet).getByRole('radio', { name: /^Any day this week/ });
+		expect(anyDay.closest('label')).not.toHaveClass('bg-ground-2');
+		expect(anyDay.closest('label')).not.toHaveClass('bg-card');
+
+		const tomorrowRow = (await within(sheet).findByText('Katsu Curry')).closest('label')!;
+		expect(within(tomorrowRow).queryByText('+ Korean Fried Chicken')).toBeNull();
+		await fireEvent.click(within(tomorrowRow).getByRole('radio'));
+
+		// The day keeps what it held, and the recipe is seen joining it (ADR 0058).
+		expect(tomorrowRow).toHaveClass('bg-card');
+		expect(within(tomorrowRow).getByText('Katsu Curry')).toBeInTheDocument();
+		expect(within(tomorrowRow).getByText('+ Korean Fried Chicken')).toBeInTheDocument();
+		expect(anyDay.closest('label')).not.toHaveClass('bg-card');
+
+		// A day that already holds this recipe says so in the accent.
+		const its = within(sheet).getByText('Korean Fried Chicken', { selector: '.text-accent' });
+		expect(its.closest('label')).not.toBe(tomorrowRow);
+	});
+
+	it('takes a meal just planned back off with Undo, and says so (#654)', async () => {
+		const tomorrow = addDays(today(), 1);
+		// A write answers the meal without whether it was cooked (#489).
+		const { cooked, ...planned } = plannedOn(
+			tomorrow,
+			'mine',
+			'Korean Fried Chicken',
+			'pm_00000000000000aa',
+		);
+		void cooked;
+		const { kamosu } = scalable({
+			get_meal_plan: { planned_meals: [] },
+			plan_recipe: { planned_meal: planned },
+			remove_planned_meal: { planned_meal: planned },
+		});
+		await screen.findByText('Amounts for 4 servings');
+		await fireEvent.click(screen.getByRole('button', { name: 'Plan' }));
+		const sheet = await screen.findByRole('dialog');
+		await fireEvent.click(within(sheet).getByRole('radio', { name: /^Tomorrow · / }));
+		await fireEvent.click(within(sheet).getByRole('button', { name: /^Plan it for / }));
+
+		const said = await screen.findByText(/^Planned for /);
+		const card = said.closest('section')!;
+		expect(within(card).getByRole('link', { name: 'See the plan' })).toHaveAttribute(
+			'href',
+			`/plan?week=${mondayOf(tomorrow)}`,
+		);
+		// Plan stays Plan: pressing it again plans the recipe once more.
+		expect(screen.getByRole('button', { name: 'Plan' })).toBeInTheDocument();
+
+		await fireEvent.click(within(card).getByRole('button', { name: 'Undo' }));
+		expect(kamosu.calls).toContainEqual({
+			operation: 'remove_planned_meal',
+			input: { planned_meal_id: 'pm_00000000000000aa' },
+		});
+		expect(await screen.findByText(/^Taken off the plan for /)).toBeInTheDocument();
+		expect(screen.queryByText(/^Planned for /)).toBeNull();
+	});
+
+	it('says so when Undo could not take a meal back off, and keeps the card (#654)', async () => {
+		const tomorrow = addDays(today(), 1);
+		const { cooked, ...planned } = plannedOn(
+			tomorrow,
+			'mine',
+			'Korean Fried Chicken',
+			'pm_00000000000000aa',
+		);
+		void cooked;
+		scalable({
+			get_meal_plan: { planned_meals: [] },
+			plan_recipe: { planned_meal: planned },
+			remove_planned_meal: { refuse: 'internal' as const },
+		});
+		await screen.findByText('Amounts for 4 servings');
+		await fireEvent.click(screen.getByRole('button', { name: 'Plan' }));
+		const sheet = await screen.findByRole('dialog');
+		await fireEvent.click(within(sheet).getByRole('radio', { name: /^Tomorrow · / }));
+		await fireEvent.click(within(sheet).getByRole('button', { name: /^Plan it for / }));
+		await fireEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+
+		expect(await screen.findByRole('alert')).toHaveTextContent("That didn't save.");
+		expect(screen.getByText(/^Planned for /)).toBeInTheDocument();
+	});
+
 	it('opens a recipe planned as written as written, whatever the list holds (#486)', async () => {
 		const { kamosu } = scalable(
 			{
@@ -3149,9 +3266,11 @@ describe("the recipe's acts (#649)", () => {
 		expect(kamosu.calls.find((call) => call.operation === 'add_to_shopping_list')?.input).toEqual({
 			branch_id: 'mine',
 		});
+		const went = await screen.findByText('3 ingredients added to the shopping list.');
+		// The same card as after planning: a way to see it, and Undo (#654).
 		expect(
-			await screen.findByText('3 ingredients added to the shopping list.'),
-		).toBeInTheDocument();
+			within(went.closest('section')!).getByRole('link', { name: 'See the list' }),
+		).toHaveAttribute('href', '/shopping');
 		const on = screen.getByRole('link', { name: 'On the list' });
 		expect(on).toHaveAttribute('href', '/shopping');
 		expect(on.className).toContain('main-button');
@@ -3162,6 +3281,7 @@ describe("the recipe's acts (#649)", () => {
 		).toEqual({ branch_id: 'mine' });
 		expect(await screen.findByRole('button', { name: 'Shopping list' })).toBeInTheDocument();
 		expect(screen.queryByText(/added to the shopping list/)).toBeNull();
+		expect(screen.getByRole('status')).toHaveTextContent('Taken off the shopping list.');
 	});
 
 	it('leaves what was added, and its Undo, behind when you walk to another recipe', async () => {

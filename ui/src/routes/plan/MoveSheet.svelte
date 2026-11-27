@@ -71,6 +71,8 @@
 		<PlanPicker
 			{chosen}
 			skip={again ? undefined : meal.planned_meal_id}
+			branchId={meal.branch_id}
+			joining={mealName(meal)}
 			onchoose={(where) => (chosen = where)}
 		/>
 		{#if failed}
@@ -80,7 +82,7 @@
 	<div class="grid gap-2 border-t border-rule px-gutter py-3">
 		<button
 			type="button"
-			class="min-h-12 rounded-sm bg-accent px-4 font-display font-semibold text-on-accent disabled:opacity-40"
+			class="main-button w-full"
 			disabled={!chosen || working}
 			onclick={() => void go()}
 		>
@@ -92,7 +94,7 @@
 				{m.plan_move_it_to({ where: whereTarget(chosen) })}
 			{/if}
 		</button>
-		<button type="button" class="min-h-12 text-read text-accent underline" onclick={onClose}>
+		<button type="button" class="second-button w-full" onclick={onClose}>
 			{m.plan_cancel()}
 		</button>
 	</div>

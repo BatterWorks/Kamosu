@@ -12,6 +12,10 @@
 
 	It plans the Branch on screen, so a cook choosing between a recipe's
 	versions plans the one they are reading.
+
+	Its title names what is planned, "Plan Margherita pizza", in full ink,
+	where a faint "PLAN THIS" stood above the name (PL4 of the UX audit; panel
+	A of #654's prototype, 27 November 2026).
 -->
 <script lang="ts">
 	import { m } from '#lib/paraglide/messages.js';
@@ -30,8 +34,11 @@
 		written: Written;
 		/** The noun for one and for many, from the Core (#705). */
 		nouns?: YieldNouns;
-		/** Planned: where, at what. */
-		onPlanned: (where: Where, wanted: Wanted) => void;
+		/**
+		 * Planned: where, at what, and the Planned Meal it made, which Undo
+		 * takes off again. Null where the write answered none.
+		 */
+		onPlanned: (where: Where, wanted: Wanted, plannedMealId: string | null) => void;
 		onClose: () => void;
 	}
 
@@ -49,12 +56,12 @@
 		if (!chosen || working) return;
 		working = true;
 		try {
-			await kamosu.planRecipe({
+			const answer = await kamosu.planRecipe({
 				branch_id: branchId,
 				...chosen,
 				...(wanted ? { planned_yield: wanted } : {}),
 			});
-			onPlanned(chosen, wanted);
+			onPlanned(chosen, wanted, answer.planned_meal?.planned_meal_id ?? null);
 		} catch (error: unknown) {
 			if (!(error instanceof OperationError)) throw error;
 			failed = true;
@@ -66,9 +73,10 @@
 
 <SheetFrame labelledby="{uid}-title" tall={88} class="flex flex-col bg-ground" onclose={onClose}>
 	<div class="min-h-0 flex-1 overflow-y-auto px-gutter pt-4 pb-4">
-		<p class="text-label text-support-2 uppercase">{m.plan_this()}</p>
-		<h3 id="{uid}-title" class="mt-1 font-display text-line font-semibold">{title}</h3>
-		<PlanPicker {chosen} onchoose={(where) => (chosen = where)} />
+		<h3 id="{uid}-title" class="font-display text-title font-semibold">
+			{m.plan_this_title({ title })}
+		</h3>
+		<PlanPicker {chosen} {branchId} joining={title} onchoose={(where) => (chosen = where)} />
 		<div class="mt-4 border-t border-rule pt-3">
 			<HowMuch {written} {wanted} {nouns} room="page" onchoose={(next) => (wanted = next)} />
 		</div>

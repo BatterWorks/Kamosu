@@ -69,11 +69,7 @@
 		/>
 		<p class="mt-2 text-read text-ink-2">{m.plan_words_kept_short()}</p>
 		<p class="mt-3 text-center text-read text-ink-2">{m.plan_or()}</p>
-		<a
-			href="/recipes"
-			class="mt-2 flex min-h-12 items-center justify-center rounded-sm border border-accent bg-card px-3 font-semibold text-accent"
-			>{m.plan_choose_recipe()}</a
-		>
+		<a href="/recipes" class="mt-2 second-button w-full">{m.plan_choose_recipe()}</a>
 		{#if failed}
 			<p class="mt-3 text-read text-support" role="alert">{m.plan_write_failed()}</p>
 		{/if}
@@ -81,13 +77,13 @@
 	<div class="grid gap-2 border-t border-rule px-gutter py-3">
 		<button
 			type="button"
-			class="min-h-12 rounded-sm bg-accent px-4 font-display font-semibold text-on-accent disabled:opacity-40"
+			class="main-button w-full"
 			disabled={!words.trim() || working}
 			onclick={() => void put()}
 		>
 			{m.plan_put_it_on({ where: whereName(where) })}
 		</button>
-		<button type="button" class="min-h-12 text-read text-accent underline" onclick={onClose}>
+		<button type="button" class="second-button w-full" onclick={onClose}>
 			{m.plan_cancel()}
 		</button>
 	</div>

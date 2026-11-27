@@ -267,7 +267,7 @@
 	<div class="grid gap-2 border-t border-rule px-gutter py-3">
 		<button
 			type="button"
-			class="min-h-12 rounded-sm bg-accent px-4 font-display font-semibold text-on-accent disabled:opacity-40"
+			class="main-button w-full"
 			disabled={chosen.length === 0 || working}
 			onclick={() => void send()}
 		>
@@ -279,7 +279,7 @@
 				{m.plan_send()}
 			{/if}
 		</button>
-		<button type="button" class="min-h-12 text-read text-accent underline" onclick={onClose}>
+		<button type="button" class="second-button w-full" onclick={onClose}>
 			{m.plan_cancel()}
 		</button>
 	</div>

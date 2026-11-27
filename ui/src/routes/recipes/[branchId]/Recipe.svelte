@@ -186,7 +186,6 @@
 	import PrintStatus from './PrintStatus.svelte';
 	import RecipeActs from './RecipeActs.svelte';
 	import MoreSheet from './MoreSheet.svelte';
-	import PlanThis from './PlanThis.svelte';
 	import DeleteRecipe from './DeleteRecipe.svelte';
 	import Carrying from './Carrying.svelte';
 	import { asBranchLanguage, type WrittenLanguage } from '#lib/language.js';
@@ -197,9 +196,7 @@
 	import StepPhoto from '#lib/StepPhoto.svelte';
 	import { thisDevice, type Device } from '#lib/offline/device.svelte.js';
 	import { useFiles } from '#lib/api/files.js';
-	import { said, same, toSearch, type Wanted } from '#lib/how-much.js';
-	import { weekOfWhere, type Where } from '#lib/plan-days.js';
-	import { whereName } from '#lib/plan-where.js';
+	import { same, toSearch, type Wanted } from '#lib/how-much.js';
 	import { takePaste, type PastedDraft } from '#lib/pasted.svelte.js';
 	import {
 		between,
@@ -307,18 +304,12 @@
 	 */
 	let onTheList = $state(false);
 
-	// ---- the Meal Plan (#486) ---------------------------------------------
-
-	/** "Plan this" is open. */
-	let planning = $state(false);
 	/** The More sheet, holding the rarer acts, is open (#649). */
 	let more = $state(false);
 	/** Deleting's confirmation, which the More sheet asks for. */
 	let deleter = $state<DeleteRecipe>();
 	/** Two columns, where the Method needs no jump to it (#198). */
 	const room = useRoom();
-	/** What was just planned from here, which the page says under the button. */
-	let planned = $state<{ where: Where; wanted: Wanted } | null>(null);
 
 	// ---- how much, for the errands (#109) ---------------------------------
 	//
@@ -593,7 +584,6 @@
 				// it, onto a page that has nothing to compare (#131).
 				divergence = undefined;
 				divergent.reset();
-				planned = null;
 				choosingHowMuch = false;
 				howMuchFailed = false;
 				// A Sheet being set was the last recipe's, and stops being
@@ -1108,9 +1098,16 @@
 			{#key branchId}
 				<RecipeActs
 					{branchId}
+					plans={readHere && recipe
+						? {
+								branchId: recipe.branch_id,
+								title: content.title,
+								written: content.yield,
+								nouns: yieldNouns,
+							}
+						: null}
 					scaledTo={pageScaledTo}
 					bind:onTheList
-					onPlan={() => (planning = true)}
 					onMore={() => (more = true)}
 				/>
 			{/key}
@@ -1175,21 +1172,6 @@
 						if (!follow(landed.branch_id)) reread += 1;
 					}}
 				/>
-			{/if}
-
-			{#if planned}
-				{@const amount = said(planned.wanted, yieldNouns)}
-				<p
-					class="mx-gutter mt-3 border-l-3 border-accent bg-card px-3 py-2 text-read"
-					role="status"
-				>
-					{amount
-						? m.plan_planned_for_amount({ day: whereName(planned.where), amount })
-						: m.plan_planned_for({ day: whereName(planned.where) })}
-					<a href="/plan?week={weekOfWhere(planned.where)}" class="ms-1 text-accent underline"
-						>{m.plan_see()}</a
-					>
-				</p>
 			{/if}
 
 			<!--
@@ -1682,20 +1664,6 @@
 <svelte:head>
 	<title>{content ? `${content.title} · ` : ''}{m.app_name()}</title>
 </svelte:head>
-
-{#if planning && recipe && content}
-	<PlanThis
-		branchId={recipe.branch_id}
-		title={content.title}
-		written={content.yield}
-		nouns={yieldNouns}
-		onPlanned={(where, wanted) => {
-			planning = false;
-			planned = { where, wanted };
-		}}
-		onClose={() => (planning = false)}
-	/>
-{/if}
 
 <!-- The rarer acts, behind More (#649), and deleting's confirmation, which it asks for. -->
 {#if more && recipe && !failed}
