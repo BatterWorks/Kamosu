@@ -120,8 +120,6 @@
 	const heading = $derived(
 		meal.day ? aPlannedDay(meal.day) : m.plan_any_day_label({ week: weekLabel(meal.week) }),
 	);
-	const framed =
-		'flex min-h-12 items-center justify-center rounded-sm border border-accent bg-card px-3 font-semibold text-accent disabled:opacity-40';
 </script>
 
 <SheetFrame labelledby="{uid}-title" tall={85} class="flex flex-col bg-ground" onclose={onClose}>
@@ -186,25 +184,21 @@
 	</div>
 	<div class="grid gap-2 border-t border-rule px-gutter py-3">
 		{#if meal.words === null && !meal.gone}
-			<a
-				href={opens}
-				class="flex min-h-12 items-center justify-center rounded-sm bg-accent px-4 font-display font-semibold text-on-accent"
-				data-sheet-focus
-			>
+			<a href={opens} class="main-button w-full" data-sheet-focus>
 				{amount ? m.plan_open_for({ amount }) : m.plan_open()}
 			</a>
 		{/if}
 		<div class="grid grid-cols-2 gap-2">
-			<button type="button" class={framed} onclick={onMove}>{m.plan_move()}</button>
+			<button type="button" class="second-button" onclick={onMove}>{m.plan_move()}</button>
 			{#if !meal.gone}
-				<button type="button" class={framed} onclick={onAgain}>{m.plan_again()}</button>
+				<button type="button" class="second-button" onclick={onAgain}>{m.plan_again()}</button>
 			{/if}
 		</div>
 		{#if count > 1}
 			<div class="grid grid-cols-2 gap-2">
 				<button
 					type="button"
-					class={framed}
+					class="second-button"
 					disabled={place === 0}
 					onclick={() => void order(place - 1)}
 				>
@@ -212,7 +206,7 @@
 				</button>
 				<button
 					type="button"
-					class={framed}
+					class="second-button"
 					disabled={place === count - 1}
 					onclick={() => void order(place + 1)}
 				>

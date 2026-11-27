@@ -36,24 +36,19 @@ const SRC = join(import.meta.dirname, '..');
 /**
  * The files #632 found drawing their own, less the share screen it moved, the
  * Kitchens page #648 did, Settings, Foods, Import history and the Operator's
- * pages #653 did, and the files no area ticket owned, which #688 did. Of
- * those, three wait for a design choice raised on #688: the pasted lines
- * tapped to split a paste (`PasteCheck`), the cooking pictures to choose
- * from (`PhotoToRecipe`) and the tiles of the examples to watch (`Replays`).
+ * pages #653 did, the Meal Plan and its sheets #654 did, and the files no
+ * area ticket owned, which #688 did. Of those, three wait for a design
+ * choice raised on #688: the pasted lines tapped to split a paste
+ * (`PasteCheck`), the cooking pictures to choose from (`PhotoToRecipe`) and
+ * the tiles of the examples to watch (`Replays`).
  */
 const STILL_HAND_STYLED: string[] = [
 	'lib/PasteCheck.svelte',
 	'lib/PhotoToRecipe.svelte',
-	'lib/PlanPicker.svelte',
 	'lib/adding/Replays.svelte',
 	'lib/shell/BackArrow.svelte',
 	'lib/shell/PlaceLink.svelte',
 	'routes/+layout.svelte',
-	'routes/plan/ChangeSheet.svelte',
-	'routes/plan/MoveSheet.svelte',
-	'routes/plan/Plan.svelte',
-	'routes/plan/SendToShopping.svelte',
-	'routes/plan/WriteSheet.svelte',
 ];
 
 const PIECES = [

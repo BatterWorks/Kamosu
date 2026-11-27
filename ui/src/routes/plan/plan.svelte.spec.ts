@@ -103,7 +103,8 @@ describe('the Plan', () => {
 		).toEqual(['/recipes/b_katsu', '/recipes/b_ceviche']);
 		// The week's list with no day, then its seven days.
 		expect(document.querySelectorAll('section')).toHaveLength(8);
-		expect(screen.getAllByText('Nothing planned')).toHaveLength(5);
+		// An empty day says nothing: its date and its + are enough (#654).
+		expect(screen.queryByText(/^Nothing/)).toBeNull();
 		expect(kamosu.calls).toContainEqual({
 			operation: 'get_meal_plan',
 			input: { from: monday, to: addDays(monday, 6), time_zone: timeZoneHere() },
@@ -113,12 +114,12 @@ describe('the Plan', () => {
 	it('says how to plan something in a week with nothing planned', async () => {
 		renderScreen(Page, { get_meal_plan: { planned_meals: [] } });
 
-		expect(await screen.findByText('Nothing planned for this week.')).toBeInTheDocument();
-		expect(screen.getByText(/press Plan this to put it on a day/)).toBeInTheDocument();
-		expect(screen.getByRole('link', { name: 'Choose a recipe' })).toHaveAttribute(
-			'href',
-			'/recipes',
-		);
+		expect(await screen.findByText('Nothing planned this week.')).toBeInTheDocument();
+		// One sentence, naming the button a recipe has now (#649, #654).
+		expect(screen.getByText('Press Plan on a recipe, or + on a day.')).toBeInTheDocument();
+		const choose = screen.getByRole('link', { name: 'Choose a recipe' });
+		expect(choose).toHaveAttribute('href', '/recipes');
+		expect(choose).toHaveClass('second-button');
 	});
 
 	it('moves a week at a time, and back to this one', async () => {
@@ -127,7 +128,7 @@ describe('the Plan', () => {
 
 		await fireEvent.click(screen.getByRole('button', { name: 'The week after' }));
 		expect(await screen.findByText('Next week')).toBeInTheDocument();
-		expect(await screen.findByText('Nothing planned for this week.')).toBeInTheDocument();
+		expect(await screen.findByText('Nothing planned this week.')).toBeInTheDocument();
 		expect(kamosu.calls.at(-1)?.input).toEqual({
 			from: addDays(monday, 7),
 			to: addDays(monday, 13),
@@ -196,7 +197,7 @@ describe('the Plan', () => {
 			operation: 'remove_planned_meal',
 			input: { planned_meal_id: 'pm_0000000000000001' },
 		});
-		expect(await screen.findByText('Nothing planned for this week.')).toBeInTheDocument();
+		expect(await screen.findByText('Nothing planned this week.')).toBeInTheDocument();
 	});
 
 	it('says a recipe planned as written that names no Yield is as written', async () => {
@@ -218,7 +219,7 @@ describe('the Plan', () => {
 
 		await fireEvent.click(screen.getByRole('button', { name: 'The week after' }));
 		expect(await screen.findByRole('alert')).toHaveTextContent('The plan could not be read');
-		expect(screen.queryByText('Nothing planned')).toBeNull();
+		expect(screen.queryByText('Nothing planned this week.')).toBeNull();
 
 		// Back to a week that reads, the failure is gone with the week it was.
 		await fireEvent.click(screen.getByRole('button', { name: 'Back to this week' }));
@@ -231,7 +232,9 @@ describe('the Plan', () => {
 
 		const katsu = await screen.findByRole('link', { name: /Katsu Curry/ });
 		expect(katsu.closest('.grid-cols-7')).not.toBeNull();
-		expect(screen.getAllByText('Nothing')).toHaveLength(6);
+		// Each empty day is a box to drag a meal into, with no word in it (#654).
+		expect(screen.queryByText('Nothing')).toBeNull();
+		expect(document.querySelectorAll('[data-empty-day]')).toHaveLength(6);
 	});
 });
 
@@ -272,11 +275,7 @@ describe('the Plan, a week with no day and written words (#487)', () => {
 		expect(sections[0]).toHaveTextContent('Any day');
 
 		await fireEvent.click(screen.getByRole('button', { name: 'The week after' }));
-		expect(
-			await screen.findByText(
-				'Nothing yet. A recipe planned for the week, with no day, waits here.',
-			),
-		).toBeInTheDocument();
+		expect(await screen.findByText('No day chosen yet')).toBeInTheDocument();
 	});
 
 	it('draws written words with no photo and nothing to open, and changes them on Done', async () => {
@@ -317,6 +316,8 @@ describe('the Plan, a week with no day and written words (#487)', () => {
 
 		const plus = screen.getAllByRole('button', { name: /^Add to / });
 		expect(plus).toHaveLength(8);
+		// The shared quiet button, tapped at 48 where it stood 40 × 33 (#654).
+		for (const each of plus) expect(each).toHaveClass('quiet-button');
 		await fireEvent.click(plus[5]);
 		const sheet = await screen.findByRole('dialog');
 		const put = within(sheet).getByRole('button', { name: /^Put it on / });
@@ -493,8 +494,8 @@ describe('the Plan, a week with no day and written words (#487)', () => {
 		await fireEvent.dragOver(saturday);
 		// An empty day keeps its box under the pointer, lit, rather than
 		// shrinking to a line and losing the drop (found live).
-		const nothing = within(saturday).getByText('Nothing');
-		expect(nothing).toHaveClass('border-accent');
+		const box = saturday.querySelector('[data-empty-day]');
+		expect(box).toHaveClass('border-accent');
 		await fireEvent.drop(saturday);
 
 		expect(kamosu.calls).toContainEqual({
@@ -508,7 +509,7 @@ describe('the Plan when something goes wrong or nothing is there (#487)', () => 
 	it('keeps a + on every day of an empty week, as its sentence says', async () => {
 		renderScreen(Page, { get_meal_plan: { planned_meals: [] } });
 
-		expect(await screen.findByText(/or press \+ on a day to write something/)).toBeInTheDocument();
+		expect(await screen.findByText(/or \+ on a day\.$/)).toBeInTheDocument();
 		expect(screen.getAllByRole('button', { name: /^Add to / })).toHaveLength(8);
 	});
 
@@ -582,7 +583,8 @@ describe('the Plan when something goes wrong or nothing is there (#487)', () => 
 		);
 		const katsu = await screen.findByRole('link', { name: /Katsu Curry/ });
 		const band = screen.getByRole('region', { name: 'Any day this week' });
-		const empty = within(band).getByText(/^Nothing on .any day. for this week\.$/);
+		// The phone's words on the wide band too: one explanation on the screen at most (U3, #654).
+		const empty = within(band).getByText('No day chosen yet');
 
 		await fireEvent.dragStart(katsu.closest('li') as HTMLElement);
 		await fireEvent.dragOver(band);

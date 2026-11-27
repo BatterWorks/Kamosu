@@ -365,9 +365,7 @@
 		{#each [true, false] as back (back)}
 			<button
 				type="button"
-				class="flex h-12 w-12 shrink-0 items-center justify-center rounded-sm border border-rule bg-card text-accent {back
-					? 'order-first'
-					: 'order-last'}"
+				class="second-button w-12 shrink-0 px-0! {back ? 'order-first' : 'order-last'}"
 				aria-label={back ? m.plan_week_before() : m.plan_week_after()}
 				onclick={() => {
 					monday = addDays(monday, back ? -7 : 7);
@@ -410,11 +408,7 @@
 		</p>
 	{/if}
 	<div class="mt-2 flex justify-end">
-		<button
-			type="button"
-			class="inline-flex min-h-12 items-center gap-2 rounded-sm border border-accent bg-card px-4 text-read font-medium text-accent"
-			onclick={() => (sending = true)}
-		>
+		<button type="button" class="second-button" onclick={() => (sending = true)}>
 			<svg
 				viewBox="0 0 24 24"
 				class="h-[18px] w-[18px]"
@@ -744,8 +738,8 @@
 	<button
 		type="button"
 		class={wide
-			? 'mt-2 min-h-[36px] w-full rounded-sm border border-dashed border-accent text-read text-accent'
-			: 'mt-2 flex h-[32px] w-[40px] items-center justify-center rounded-sm border border-dashed border-accent bg-card text-line text-accent'}
+			? 'quiet-button mt-2 w-full text-accent'
+			: 'quiet-button mt-2 w-[40px] px-0! text-line! text-accent'}
 		aria-label={m.plan_add_to({ where: whereName(where) })}
 		onclick={() => (writing = where)}
 	>
@@ -763,16 +757,13 @@
 			<!-- Above the week rather than in its place, so each day keeps the +
 			     the sentence names (#487). -->
 			<div
-				class="mt-6 max-w-2xl rounded-sm border border-dashed border-rule bg-ground-2 p-6 text-body text-ink-2"
+				class="mt-6 max-w-2xl rounded-sm border border-dashed border-rule bg-ground-2 p-6 text-body text-ink"
 			>
 				<p>{m.plan_empty()}</p>
-				<p class="mt-2">{m.plan_empty_how_write()}</p>
-				<a
-					href="/recipes"
-					class="mt-4 inline-flex min-h-12 items-center rounded-sm border border-accent px-4 font-medium text-accent"
-				>
-					{m.plan_empty_choose()}
-				</a>
+				<p class="mt-1 text-read text-ink-2">
+					{room.wide ? m.plan_empty_how_write_wide() : m.plan_empty_how_write()}
+				</p>
+				<a href="/recipes" class="mt-4 second-button">{m.plan_empty_choose()}</a>
 			</div>
 		{/if}
 		{#if room.wide}
@@ -793,7 +784,7 @@
 					{@render cards(anyDay, list, 'mt-2 grid grid-cols-7 gap-2')}
 				{:else}
 					<p class="mt-2 text-read {overIt(anyDay) ? 'text-accent' : 'text-ink-2'}">
-						{m.plan_any_empty_short()}
+						{m.plan_any_empty()}
 					</p>
 				{/if}
 				<div class="w-[160px]">{@render plus(anyDay, true)}</div>
@@ -831,15 +822,14 @@
 						{#if list.length > 0}
 							{@render cards({ day }, list, 'mt-2 grid gap-2')}
 						{:else}
-							<p
-								class="mt-2 rounded-sm border border-dashed p-4 text-center text-read {overIt({
-									day,
-								})
-									? 'border-accent text-accent'
-									: 'border-rule text-ink-2'}"
-							>
-								{m.plan_nothing_short()}
-							</p>
+							<!-- An empty day is the box a meal is dragged into, with no word in
+							     it (#654): its date says which day, and + Add is under it. -->
+							<div
+								data-empty-day
+								class="mt-2 min-h-[52px] rounded-sm border border-dashed {overIt({ day })
+									? 'border-accent'
+									: 'border-rule'}"
+							></div>
 						{/if}
 						{@render plus({ day }, true)}
 					</section>
@@ -900,7 +890,7 @@
 								{/each}
 							</ul>
 						{:else}
-							<p class="flex-1 py-3 text-read text-ink-2">{m.plan_nothing()}</p>
+							<span class="min-w-0 flex-1"></span>
 						{/if}
 					</section>
 				{/each}
